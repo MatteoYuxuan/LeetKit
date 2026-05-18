@@ -5,7 +5,10 @@ LEETCODE_CN_GRAPHQL_URL = "https://leetcode.cn/graphql/"
 DEFAULT_HEADERS = {
     "Content-Type": "application/json",
     "Referer": "https://leetcode.cn",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Origin": "https://leetcode.cn",
+    "Accept": "application/json",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 }
 
 
@@ -15,19 +18,54 @@ class LeetCodeClient:
         self.headers = {**DEFAULT_HEADERS}
         if cookie:
             self.headers["Cookie"] = cookie
+            csrf_token = self._extract_csrf_token(cookie)
+            if csrf_token:
+                self.headers["x-csrftoken"] = csrf_token
 
-    async def _graphql(self, query: str, variables: dict = None) -> dict:
+    def _extract_csrf_token(self, cookie: str) -> str:
+        for item in cookie.split(";"):
+            item = item.strip()
+            if item.startswith("csrftoken="):
+                return item.split("=", 1)[1]
+        return ""
+
+    async def _graphql(self, query: str, variables: dict = None, retries: int = 3) -> dict:
         payload = {"query": query}
         if variables:
             payload["variables"] = variables
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                LEETCODE_CN_GRAPHQL_URL,
-                json=payload,
-                headers=self.headers,
-            )
-            resp.raise_for_status()
-            return resp.json()
+
+        last_error = None
+        for attempt in range(retries):
+            try:
+                async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                    resp = await client.post(
+                        LEETCODE_CN_GRAPHQL_URL,
+                        json=payload,
+                        headers=self.headers,
+                    )
+                    if resp.status_code == 403:
+                        raise Exception("Cookie 已过期，请重新登录")
+                    if resp.status_code == 401:
+                        raise Exception("未授权，请检查 Cookie")
+                    resp.raise_for_status()
+                    data = resp.json()
+
+                    # 检查 GraphQL 错误
+                    if "errors" in data:
+                        error_msg = data["errors"][0].get("message", "未知错误")
+                        raise Exception(f"GraphQL 错误: {error_msg}")
+
+                    return data
+            except httpx.TimeoutException:
+                last_error = Exception("请求超时，请检查网络连接")
+                if attempt == retries - 1:
+                    raise last_error
+            except Exception as e:
+                last_error = e
+                if attempt == retries - 1:
+                    raise
+
+        raise last_error
 
     async def verify_cookie(self) -> dict:
         """验证 cookie 有效性，返回用户信息"""

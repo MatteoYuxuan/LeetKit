@@ -28,24 +28,29 @@ class ImportRequest(BaseModel):
 
 @router.post("/login")
 async def login(data: CookieLogin, db: Session = Depends(get_db)):
-    client = LeetCodeClient(cookie=data.cookie)
-    result = await client.verify_cookie()
-    if not result["is_signed_in"]:
-        raise HTTPException(status_code=401, detail="Cookie 无效或已过期")
+    try:
+        client = LeetCodeClient(cookie=data.cookie)
+        result = await client.verify_cookie()
+        if not result["is_signed_in"]:
+            raise HTTPException(status_code=401, detail="Cookie 无效或已过期")
 
-    # 清除旧 cookie
-    db.query(LeetCodeCookie).delete()
+        # 清除旧 cookie
+        db.query(LeetCodeCookie).delete()
 
-    cookie_record = LeetCodeCookie(
-        cookie_value=data.cookie,
-        leetcode_username=result["username"],
-        is_active=1,
-        last_validated_at=datetime.now(timezone.utc),
-    )
-    db.add(cookie_record)
-    db.commit()
+        cookie_record = LeetCodeCookie(
+            cookie_value=data.cookie,
+            leetcode_username=result["username"],
+            is_active=1,
+            last_validated_at=datetime.now(timezone.utc),
+        )
+        db.add(cookie_record)
+        db.commit()
 
-    return {"message": "登录成功", "username": result["username"]}
+        return {"message": "登录成功", "username": result["username"]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"登录失败: {str(e)}")
 
 
 @router.get("/status")
@@ -75,15 +80,18 @@ async def search_problems(
     skip: int = 0,
     db: Session = Depends(get_db),
 ):
-    cookie = db.query(LeetCodeCookie).filter(LeetCodeCookie.is_active == 1).first()
-    client = LeetCodeClient(cookie=cookie.cookie_value if cookie else None)
-    result = await client.search_problems(
-        keyword=q if q else None,
-        limit=limit,
-        skip=skip,
-        difficulty=difficulty,
-    )
-    return result
+    try:
+        cookie = db.query(LeetCodeCookie).filter(LeetCodeCookie.is_active == 1).first()
+        client = LeetCodeClient(cookie=cookie.cookie_value if cookie else None)
+        result = await client.search_problems(
+            keyword=q if q else None,
+            limit=limit,
+            skip=skip,
+            difficulty=difficulty,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
 
 
 @router.post("/import")
@@ -132,22 +140,25 @@ async def sync_progress(db: Session = Depends(get_db)):
     if not cookie:
         raise HTTPException(status_code=401, detail="未登录 LeetCode")
 
-    client = LeetCodeClient(cookie=cookie.cookie_value)
+    try:
+        client = LeetCodeClient(cookie=cookie.cookie_value)
 
-    # 获取最近通过的题目
-    recent_ac = await client.get_recent_ac_submissions()
+        # 获取最近通过的题目
+        recent_ac = await client.get_recent_ac_submissions()
 
-    synced = 0
-    for submission in recent_ac:
-        slug = submission.get("titleSlug", "")
-        if not slug:
-            continue
+        synced = 0
+        for submission in recent_ac:
+            slug = submission.get("titleSlug", "")
+            if not slug:
+                continue
 
-        problem = db.query(Problem).filter(Problem.leetcode_slug == slug).first()
-        if problem and problem.status == "未做":
-            problem.status = "已解"
-            problem.last_synced_at = datetime.now(timezone.utc)
-            synced += 1
+            problem = db.query(Problem).filter(Problem.leetcode_slug == slug).first()
+            if problem and problem.status == "未做":
+                problem.status = "已解"
+                problem.last_synced_at = datetime.now(timezone.utc)
+                synced += 1
 
-    db.commit()
-    return {"synced": synced, "total_ac": len(recent_ac)}
+        db.commit()
+        return {"synced": synced, "total_ac": len(recent_ac)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"同步失败: {str(e)}")
