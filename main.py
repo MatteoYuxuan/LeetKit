@@ -96,6 +96,11 @@ def serve_frontend():
     return FileResponse("static/index.html")
 
 
+@app.get("/shared")
+def serve_shared():
+    return FileResponse("static/shared.html")
+
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 if __name__ == "__main__":

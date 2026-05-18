@@ -369,6 +369,7 @@ tr:hover td { background: #f9fafb; }
         <span class="batch-count" id="batchCount">0</span> 道题已选中
         <button class="btn btn-sm" onclick="batchUpdateStatus('已解')">标记已解</button>
         <button class="btn btn-sm" onclick="batchUpdateStatus('需复盘')">标记需复盘</button>
+        <button class="btn btn-sm" onclick="batchAddToProblemList()">加入题单</button>
         <button class="btn btn-sm" onclick="batchExportProblems()">导出</button>
         <button class="btn btn-sm btn-danger" onclick="batchDeleteProblems()">删除</button>
     </div>
@@ -521,7 +522,12 @@ tr:hover td { background: #f9fafb; }
             </div>
             <div style="display:flex; gap:8px;">
                 <button class="btn" onclick="addProblemToList()">添加题目</button>
+                <button class="btn" id="shareListBtn" onclick="toggleShareList()">分享</button>
                 <button class="btn btn-danger" onclick="deleteCurrentList()">删除题单</button>
+            </div>
+            <div id="shareUrlBox" style="display:none;margin-top:12px;padding:10px 14px;background:var(--primary-light);border-radius:8px;align-items:center;gap:8px;">
+                <input type="text" id="shareUrlInput" readonly style="flex:1;font-size:13px;cursor:pointer;" onclick="this.select()">
+                <button class="btn btn-sm btn-primary" onclick="copyShareUrl()">复制链接</button>
             </div>
         </div>
         <div class="card">
@@ -711,14 +717,48 @@ tr:hover td { background: #f9fafb; }
 </div>
 </div>
 
-<!-- Add to List Modal -->
-<div class="modal-overlay" id="addToListModal">
-<div class="modal sm">
+<!-- Problem Picker Modal (add to list) -->
+<div class="modal-overlay" id="problemPickerModal">
+<div class="modal" style="width:680px;max-width:95vw;">
     <h2><span class="icon">➕</span>添加题目到题单</h2>
-    <div class="form-group"><label>题目 ID *</label><input type="number" id="addToListProblemId" placeholder="输入题目 ID" required></div>
+    <div class="filters-bar" style="margin-bottom:12px;">
+        <input type="text" id="pickerSearch" placeholder="搜索题号/标题..." oninput="debouncePickerSearch()" style="width:200px;">
+        <select id="pickerDifficulty" onchange="loadPickerResults()" style="width:100px;">
+            <option value="">全部难度</option>
+            <option value="EASY">简单</option>
+            <option value="MEDIUM">中等</option>
+            <option value="HARD">困难</option>
+        </select>
+        <select id="pickerStatus" onchange="loadPickerResults()" style="width:100px;">
+            <option value="">全部状态</option>
+            <option value="未做">未做</option>
+            <option value="在做">在做</option>
+            <option value="已解">已解</option>
+            <option value="需复盘">需复盘</option>
+        </select>
+        <span id="pickerCount" style="font-size:13px;color:var(--text2);">已选 0 道</span>
+    </div>
+    <div id="pickerResults" style="max-height:380px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;">
+        <div style="text-align:center;padding:40px;color:var(--text2);">输入关键词搜索题目...</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;">
+        <div id="pickerPager" style="display:flex;gap:4px;"></div>
+    </div>
     <div class="modal-actions">
-        <button class="btn" onclick="closeModal('addToListModal')">取消</button>
-        <button class="btn btn-primary" onclick="submitAddToList()">添加</button>
+        <button class="btn" onclick="closeModal('problemPickerModal')">取消</button>
+        <button class="btn btn-primary" id="pickerSubmitBtn" onclick="submitPickerBatchAdd()" disabled>添加选中题目</button>
+    </div>
+</div>
+</div>
+
+<!-- Select List Modal -->
+<div class="modal-overlay" id="selectListModal">
+<div class="modal sm">
+    <h2><span class="icon">📋</span>加入题单</h2>
+    <div class="form-group"><label>选择题单</label><select id="selectListSelect" style="width:100%;"></select></div>
+    <div class="modal-actions">
+        <button class="btn" onclick="closeModal('selectListModal')">取消</button>
+        <button class="btn btn-primary" onclick="submitSelectList()">加入</button>
     </div>
 </div>
 </div>
@@ -984,6 +1024,36 @@ async function batchExportProblems() {
         a.click();
         window.URL.revokeObjectURL(url);
         showToast(`已导出 ${ids.length} 道题目`);
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function batchAddToProblemList() {
+    const ids = getSelectedProblemIds();
+    if (ids.length === 0) return;
+
+    // Load problem lists into select
+    try {
+        const lists = await api('GET', '/problem-lists');
+        const select = document.getElementById('selectListSelect');
+        select.innerHTML = lists.map(l => `<option value="${l.id}">${escapeHtml(l.name)} (${l.item_count} 道)</option>`).join('');
+        window._batchProblemIds = ids;
+        openModal('selectListModal');
+    } catch (e) {
+        showToast('加载题单失败', 'error');
+    }
+}
+
+async function submitSelectList() {
+    const select = document.getElementById('selectListSelect');
+    const listId = parseInt(select.value);
+    const ids = window._batchProblemIds;
+    if (!listId || !ids || ids.length === 0) return;
+    try {
+        const data = await api('POST', '/problem-lists/' + listId + '/items/batch', { problem_ids: ids });
+        showToast(`已添加 ${data.added} 道到题单` + (data.skipped > 0 ? `，${data.skipped} 道已存在` : ''));
+        closeModal('selectListModal');
     } catch (e) {
         showToast(e.message, 'error');
     }
@@ -1738,7 +1808,7 @@ function renderReviewHistory(items) {
     card.style.display = 'block';
     const tbody = document.querySelector('#reviewHistoryTable tbody');
     tbody.innerHTML = items.map(r => `
-        <tr>
+        <tr class="clickable-row" onclick="showProblemDetailById(${r.problem_id})" title="点击查看详情">
             <td>${r.leetcode_slug ? `<a href="https://leetcode.cn/problems/${r.leetcode_slug}/" target="_blank" style="color:var(--primary);text-decoration:none;"><strong>${r.leetcode_number}</strong> ↗</a>` : `<strong>${r.leetcode_number}</strong>`}</td>
             <td>${r.title}${r.title_cn ? '<br><small style="color:var(--text2)">' + r.title_cn + '</small>' : ''}</td>
             <td><span style="color:${RATING_COLORS[r.rating]};font-weight:600;">${RATING_LABELS[r.rating]}</span></td>
@@ -1749,12 +1819,27 @@ function renderReviewHistory(items) {
 }
 
 // --- Detail views ---
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+}
+
 function renderMarkdown(text) {
     if (!text) return '';
     if (typeof marked !== 'undefined' && marked.parse) {
         return marked.parse(text);
     }
     return text.replace(/\n/g, '<br>');
+}
+
+async function showProblemDetailById(problemId) {
+    try {
+        const p = await api('GET', '/problems/' + problemId);
+        showProblemDetail(p);
+    } catch (e) {
+        showToast('加载题目详情失败', 'error');
+    }
 }
 
 function showProblemDetail(p) {
@@ -1989,6 +2074,10 @@ function renderSearchResults(data) {
 
 // ========== 题单管理 ==========
 let currentListId = null;
+let pickerPage = 1;
+let pickerTotal = 0;
+let selectedPickerIds = new Set();
+let pickerSearchTimer = null;
 
 async function loadProblemLists() {
     try {
@@ -2018,9 +2107,12 @@ async function openProblemList(id) {
     currentListId = id;
     try {
         const list = await api('GET', '/problem-lists/' + id);
+        window._currentListDetail = list;
         document.getElementById('listDetailTitle').textContent = list.name;
         document.getElementById('problemListsContainer').style.display = 'none';
         document.getElementById('problemListDetail').style.display = 'block';
+        document.getElementById('shareUrlBox').style.display = 'none';
+        document.getElementById('shareListBtn').textContent = '分享';
         renderListItems(list.items);
     } catch (e) {
         showToast('加载题单详情失败', 'error');
@@ -2052,6 +2144,8 @@ function backToLists() {
     currentListId = null;
     document.getElementById('problemListsContainer').style.display = 'block';
     document.getElementById('problemListDetail').style.display = 'none';
+    document.getElementById('shareUrlBox').style.display = 'none';
+    document.getElementById('shareListBtn').textContent = '分享';
     loadProblemLists();
 }
 
@@ -2084,6 +2178,40 @@ async function createProblemList(name, description) {
     }
 }
 
+function encodeShareData(listDetail) {
+    const data = {
+        n: listDetail.name,
+        d: listDetail.description || '',
+        q: listDetail.items.map(i => i.problem.leetcode_number),
+    };
+    return btoa(unescape(encodeURIComponent(JSON.stringify(data))))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function toggleShareList() {
+    const box = document.getElementById('shareUrlBox');
+    if (box.style.display === 'flex') {
+        box.style.display = 'none';
+        document.getElementById('shareListBtn').textContent = '分享';
+        return;
+    }
+    const input = document.getElementById('shareUrlInput');
+    input.value = window.location.origin + '/shared#' + encodeShareData(window._currentListDetail);
+    box.style.display = 'flex';
+    document.getElementById('shareListBtn').textContent = '取消分享';
+    input.select();
+}
+
+function copyShareUrl() {
+    const input = document.getElementById('shareUrlInput');
+    input.select();
+    navigator.clipboard.writeText(input.value).then(() => {
+        showToast('链接已复制到剪贴板');
+    }).catch(() => {
+        showToast('复制失败，请手动选中链接', 'error');
+    });
+}
+
 async function deleteCurrentList() {
     if (!currentListId) return;
     if (!confirm('确定删除这个题单？')) return;
@@ -2097,29 +2225,93 @@ async function deleteCurrentList() {
 }
 
 function addProblemToList() {
-    document.getElementById('addToListProblemId').value = '';
-    openModal('addToListModal');
+    pickerPage = 1;
+    selectedPickerIds = new Set();
+    document.getElementById('pickerSearch').value = '';
+    document.getElementById('pickerDifficulty').value = '';
+    document.getElementById('pickerStatus').value = '';
+    document.getElementById('pickerCount').textContent = '已选 0 道';
+    document.getElementById('pickerSubmitBtn').disabled = true;
+    openModal('problemPickerModal');
+    loadPickerResults();
 }
 
-async function submitAddToList() {
-    const idStr = document.getElementById('addToListProblemId').value.trim();
-    if (!idStr) { showToast('请输入题目 ID', 'error'); return; }
+function debouncePickerSearch() {
+    clearTimeout(pickerSearchTimer);
+    pickerSearchTimer = setTimeout(() => { pickerPage = 1; loadPickerResults(); }, 300);
+}
+
+async function loadPickerResults(page) {
+    if (page) pickerPage = page;
+    const params = new URLSearchParams({ page: pickerPage, page_size: 15 });
+    const q = document.getElementById('pickerSearch').value.trim();
+    if (q) params.set('q', q);
+    const diff = document.getElementById('pickerDifficulty').value;
+    if (diff) params.set('difficulty', diff);
+    const status = document.getElementById('pickerStatus').value;
+    if (status) params.set('status', status);
+
     try {
-        await addItemToList(currentListId, parseInt(idStr));
-        closeModal('addToListModal');
+        const data = await api('GET', '/problems?' + params.toString());
+        renderPickerResults(data);
     } catch (e) {
-        // 错误已在 addItemToList 中 toast
+        document.getElementById('pickerResults').innerHTML = '<div style="text-align:center;padding:40px;color:var(--danger);">加载失败</div>';
     }
 }
 
-async function addItemToList(listId, problemId) {
+function renderPickerResults(data) {
+    pickerTotal = data.total || 0;
+    const container = document.getElementById('pickerResults');
+    if (!data.items || data.items.length === 0) {
+        container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2);">无匹配题目</div>';
+        document.getElementById('pickerPager').innerHTML = '';
+        return;
+    }
+
+    container.innerHTML = data.items.map(p => {
+        const checked = selectedPickerIds.has(p.id) ? 'checked' : '';
+        return `<div class="lc-result-item" style="display:flex;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border);">
+            <input type="checkbox" style="width:auto;margin-right:10px;" ${checked} onchange="togglePickerSelect(${p.id}, this.checked)">
+            <strong style="width:70px;flex-shrink:0;">#${p.leetcode_number}</strong>
+            <span style="flex:1;">${escapeHtml(p.title)}${p.title_cn ? ' <small style=\'color:var(--text2)\'>' + escapeHtml(p.title_cn) + '</small>' : ''}</span>
+            ${difficultyBadge(p.difficulty)}
+            <span style="margin-left:8px;">${statusBadge(p.status)}</span>
+        </div>`;
+    }).join('');
+
+    // Pagination
+    const totalPages = Math.ceil(pickerTotal / 15);
+    const pager = document.getElementById('pickerPager');
+    if (totalPages <= 1) { pager.innerHTML = ''; return; }
+    let html = '';
+    for (let i = 1; i <= totalPages; i++) {
+        if (totalPages > 7 && (i > 3 && i < totalPages - 2) && i !== pickerPage) {
+            if (i === 4) html += '<span style="padding:4px;">...</span>';
+            continue;
+        }
+        html += `<button class="page-btn${i === pickerPage ? ' active' : ''}" onclick="loadPickerResults(${i})">${i}</button>`;
+    }
+    pager.innerHTML = html;
+}
+
+function togglePickerSelect(id, checked) {
+    if (checked) selectedPickerIds.add(id);
+    else selectedPickerIds.delete(id);
+    document.getElementById('pickerCount').textContent = `已选 ${selectedPickerIds.size} 道`;
+    document.getElementById('pickerSubmitBtn').disabled = selectedPickerIds.size === 0;
+}
+
+async function submitPickerBatchAdd() {
+    if (selectedPickerIds.size === 0) return;
     try {
-        await api('POST', '/problem-lists/' + listId + '/items', { problem_id: problemId });
-        showToast('已添加到题单');
-        openProblemList(listId);
+        const data = await api('POST', '/problem-lists/' + currentListId + '/items/batch', {
+            problem_ids: [...selectedPickerIds]
+        });
+        showToast(`已添加 ${data.added} 道` + (data.skipped > 0 ? `，${data.skipped} 道已存在` : ''));
+        closeModal('problemPickerModal');
+        openProblemList(currentListId);
     } catch (e) {
         showToast(e.message, 'error');
-        throw e;
     }
 }
 
@@ -2310,7 +2502,7 @@ async function loadReviewTimeline() {
             return;
         }
         tbody.innerHTML = timeline.map(item => `
-            <tr>
+            <tr class="clickable-row" onclick="showProblemDetailById(${item.problem_id})" title="点击查看详情">
                 <td>${item.leetcode_slug ? `<a href="https://leetcode.cn/problems/${item.leetcode_slug}/" target="_blank" style="color:var(--primary);text-decoration:none;"><strong>${item.leetcode_number || '-'}</strong> ↗</a>` : `<strong>${item.leetcode_number || '-'}</strong>`}</td>
                 <td>${item.title || '-'}${item.title_cn ? '<br><small style="color:var(--text2)">' + item.title_cn + '</small>' : ''}</td>
                 <td>阶段 ${item.stage + 1}/${item.total_stages}</td>

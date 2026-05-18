@@ -47,6 +47,7 @@ def get_next_review(exclude_id: int | None = None, db: Session = Depends(get_db)
             "leetcode_slug": problem.leetcode_slug,
             "difficulty": problem.difficulty,
             "status": problem.status,
+            "page_number": problem.page_number,
             "notes": problem.notes,
             "time_complexity": problem.time_complexity,
             "space_complexity": problem.space_complexity,

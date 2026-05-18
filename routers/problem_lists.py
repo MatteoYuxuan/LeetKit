@@ -36,6 +36,10 @@ class ReorderRequest(BaseModel):
     items: list[dict]  # [{"item_id": 1, "sort_order": 0}, ...]
 
 
+class BatchAddItemsRequest(BaseModel):
+    problem_ids: list[int]
+
+
 @router.get("/problem-lists")
 def list_problem_lists(db: Session = Depends(get_db)):
     lists = db.query(ProblemList).order_by(ProblemList.updated_at.desc()).all()
@@ -168,3 +172,35 @@ def reorder_items(list_id: int, data: ReorderRequest, db: Session = Depends(get_
             item.sort_order = item_data.get("sort_order", 0)
     db.commit()
     return {"message": "排序更新成功"}
+
+
+@router.post("/problem-lists/{list_id}/items/batch", status_code=201)
+def batch_add_items(list_id: int, data: BatchAddItemsRequest, db: Session = Depends(get_db)):
+    pl = db.query(ProblemList).filter(ProblemList.id == list_id).first()
+    if not pl:
+        raise HTTPException(status_code=404, detail="题单不存在")
+
+    added = 0
+    skipped = 0
+    for problem_id in data.problem_ids:
+        problem = db.query(Problem).filter(Problem.id == problem_id).first()
+        if not problem:
+            skipped += 1
+            continue
+        existing = db.query(ProblemListItem).filter(
+            ProblemListItem.problem_list_id == list_id,
+            ProblemListItem.problem_id == problem_id,
+        ).first()
+        if existing:
+            skipped += 1
+            continue
+        item = ProblemListItem(
+            problem_list_id=list_id,
+            problem_id=problem_id,
+            sort_order=len(pl.items) + added,
+        )
+        db.add(item)
+        added += 1
+
+    db.commit()
+    return {"added": added, "skipped": skipped}
