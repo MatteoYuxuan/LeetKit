@@ -81,6 +81,7 @@ class Problem(Base):
     categories: Mapped[list["Category"]] = relationship("Category", secondary=problem_categories, back_populates="problems")
     tags: Mapped[list["Tag"]] = relationship("Tag", secondary=problem_tags, back_populates="problems")
     reviews: Mapped[list["ReviewRecord"]] = relationship("ReviewRecord", back_populates="problem", cascade="all, delete-orphan")
+    resources: Mapped[list["ProblemResource"]] = relationship("ProblemResource", back_populates="problem", cascade="all, delete-orphan")
 
 
 class Note(Base):
@@ -159,3 +160,17 @@ class ReviewSchedule(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
     problem: Mapped["Problem"] = relationship("Problem")
+
+
+class ProblemResource(Base):
+    __tablename__ = "problem_resources"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    problem_id: Mapped[int] = mapped_column(Integer, ForeignKey("problems.id", ondelete="CASCADE"), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(20), nullable=False)  # link, markdown, pdf, excel, image
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    url: Mapped[str | None] = mapped_column(String(500), nullable=True)  # 外部链接
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)  # 本地文件路径
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    problem: Mapped["Problem"] = relationship("Problem", back_populates="resources")

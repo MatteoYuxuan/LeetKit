@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from database import SessionLocal
 from models import Problem, LeetCodeCookie, Category
 from crawler.leetcode_client import LeetCodeClient
-from crud import compute_sort_key
+from crud import compute_sort_key, sync_problem_categories
 from security import encrypt_cookie, decrypt_cookie
 
 router = APIRouter(prefix="/leetcode", tags=["leetcode"])
@@ -111,7 +111,7 @@ async def import_all_problems(include_paid: bool = False, db: Session = Depends(
     """一键导入所有 LeetCode 算法题目"""
     try:
         client = LeetCodeClient()
-        all_problems = await client.fetch_all_problems(include_paid=include_paid)
+        all_problems = await client.fetch_all_problems_with_tags(include_paid=include_paid)
 
         difficulty_map = {"Easy": "EASY", "Medium": "MEDIUM", "Hard": "HARD"}
         imported = 0
@@ -130,6 +130,10 @@ async def import_all_problems(include_paid: bool = False, db: Session = Depends(
                 if not existing.leetcode_slug and item.get("titleSlug"):
                     existing.leetcode_slug = item["titleSlug"]
                     updated += 1
+                # 补充缺失的中文标题
+                if not existing.title_cn and item.get("titleCn"):
+                    existing.title_cn = item["titleCn"]
+                    updated += 1
                 # 修正难度值为大写英文
                 if existing.difficulty in ("简单", "中等", "困难"):
                     cn_map = {"简单": "EASY", "中等": "MEDIUM", "困难": "HARD"}
@@ -140,6 +144,10 @@ async def import_all_problems(include_paid: bool = False, db: Session = Depends(
                 if existing.leetcode_number_sort != correct_sort:
                     existing.leetcode_number_sort = correct_sort
                     updated += 1
+                # 同步分类
+                topic_tag_names = [t["name"] for t in item.get("topicTags", [])]
+                if topic_tag_names:
+                    sync_problem_categories(db, existing, topic_tag_names)
                 skipped += 1
                 continue
 
@@ -150,7 +158,7 @@ async def import_all_problems(include_paid: bool = False, db: Session = Depends(
                 leetcode_number=frontend_id,
                 leetcode_number_sort=compute_sort_key(frontend_id),
                 title=item.get("title", ""),
-                title_cn="",
+                title_cn=item.get("titleCn", ""),
                 leetcode_slug=item.get("titleSlug", ""),
                 difficulty=difficulty_upper,
                 status="未做",
@@ -158,6 +166,12 @@ async def import_all_problems(include_paid: bool = False, db: Session = Depends(
                 last_synced_at=datetime.now(timezone.utc),
             )
             db.add(problem)
+
+            # 同步分类
+            topic_tag_names = [t["name"] for t in item.get("topicTags", [])]
+            if topic_tag_names:
+                sync_problem_categories(db, problem, topic_tag_names)
+
             imported += 1
 
         db.commit()
@@ -288,3 +302,36 @@ def fix_sort_keys(db: Session = Depends(get_db)):
             updated += 1
     db.commit()
     return {"updated": updated, "total": len(problems)}
+
+
+@router.post("/sync-categories")
+async def sync_categories(db: Session = Depends(get_db)):
+    """为已有题目补全分类（从 LeetCode topicTags 映射）"""
+    try:
+        client = LeetCodeClient()
+        all_problems = await client.fetch_all_problems_with_tags()
+
+        # 构建 frontendQuestionId -> topicTags 的映射
+        id_to_tags = {}
+        for item in all_problems:
+            fid = item.get("frontendQuestionId", "")
+            tag_names = [t["name"] for t in item.get("topicTags", [])]
+            if fid and tag_names:
+                id_to_tags[fid] = tag_names
+
+        # 获取所有没有分类的题目
+        problems = db.query(Problem).all()
+        updated = 0
+
+        for p in problems:
+            tag_names = id_to_tags.get(p.leetcode_number, [])
+            if tag_names:
+                old_count = len(p.categories)
+                sync_problem_categories(db, p, tag_names)
+                if len(p.categories) > old_count:
+                    updated += 1
+
+        db.commit()
+        return {"updated": updated, "total": len(problems)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"同步分类失败: {str(e)}")

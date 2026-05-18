@@ -200,6 +200,55 @@ class LeetCodeClient:
 
         return result
 
+    async def fetch_all_problems_with_tags(self, include_paid: bool = False) -> list[dict]:
+        """通过 GraphQL API 获取所有算法题目（含 topicTags）"""
+        all_problems = []
+        skip = 0
+        limit = 100
+        total = None
+
+        while True:
+            payload = queries.get_all_problems_query(skip=skip, limit=limit)
+            data = await self._graphql(payload)
+            ql = data.get("data", {}).get("problemsetQuestionList", {})
+
+            if total is None:
+                total = ql.get("total", 0)
+
+            questions = ql.get("questions", [])
+            if not questions:
+                break
+
+            for q in questions:
+                # 跳过付费题
+                if not include_paid and q.get("paidOnly", False):
+                    continue
+
+                # 提取 topicTags
+                topic_tags = []
+                for tag in q.get("topicTags", []):
+                    topic_tags.append({
+                        "name": tag.get("name", ""),
+                        "slug": tag.get("slug", ""),
+                    })
+
+                all_problems.append({
+                    "frontendQuestionId": q.get("frontendQuestionId", ""),
+                    "title": q.get("title", ""),
+                    "titleCn": q.get("titleCn", ""),
+                    "titleSlug": q.get("titleSlug", ""),
+                    "difficulty": q.get("difficulty", "Medium"),
+                    "acRate": q.get("acRate", 0),
+                    "paidOnly": q.get("paidOnly", False),
+                    "topicTags": topic_tags,
+                })
+
+            skip += limit
+            if skip >= total:
+                break
+
+        return all_problems
+
     async def verify_cookie(self) -> dict:
         """验证 cookie 有效性，返回用户信息"""
         data = await self._graphql(queries.VERIFY_COOKIE)

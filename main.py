@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from database import engine, Base, SessionLocal
 from models import Category
-from routers import problems, categories, tags, stats, import_export, notes, reviews, search, problem_lists, leetcode, batch
+from routers import problems, categories, tags, stats, import_export, notes, reviews, search, problem_lists, leetcode, batch, resources
 
 DEFAULT_CATEGORIES = [
     "数组", "字符串", "链表", "栈", "队列", "哈希表",
@@ -88,6 +88,7 @@ app.include_router(search.router, prefix="/api")
 app.include_router(problem_lists.router, prefix="/api")
 app.include_router(leetcode.router, prefix="/api")
 app.include_router(batch.router, prefix="/api")
+app.include_router(resources.router, prefix="/api")
 
 
 @app.get("/")

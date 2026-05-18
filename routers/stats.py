@@ -31,3 +31,8 @@ def stats_progress(db: Session = Depends(get_db)):
 def stats_recent(limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_db)):
     problems = crud.get_stats_recent(db, limit)
     return [schemas.ProblemResponse.model_validate(p) for p in problems]
+
+
+@router.get("/stats/heatmap")
+def stats_heatmap(year: int = Query(None), db: Session = Depends(get_db)):
+    return crud.get_stats_heatmap(db, year)

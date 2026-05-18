@@ -326,6 +326,10 @@ tr:hover td { background: #f9fafb; }
         <div class="card"><div class="card-title">按难度分布</div><div class="chart-container"><canvas id="chartDifficulty"></canvas></div></div>
         <div class="card"><div class="card-title">按状态分布</div><div class="chart-container"><canvas id="chartStatus"></canvas></div></div>
     </div>
+    <div class="card">
+        <div class="card-title">刷题打卡热力图 <span id="heatmapYear" style="font-size:13px;color:var(--text2);margin-left:8px;"></span></div>
+        <div id="heatmapContainer" style="overflow-x:auto;padding:12px 0;"></div>
+    </div>
     <div class="card"><div class="card-title">解题进度趋势</div><div class="chart-container" style="height:220px"><canvas id="chartProgress"></canvas></div></div>
     <div class="card"><div class="card-title">按分类统计</div><div class="chart-container" style="height:auto; max-height:400px"><canvas id="chartCategory"></canvas></div></div>
     <div class="card">
@@ -443,8 +447,14 @@ tr:hover td { background: #f9fafb; }
                 <div id="reviewComplexity" style="font-size:13px;color:var(--text2);margin-bottom:8px;"></div>
                 <div id="reviewUrl" style="font-size:13px;"></div>
             </div>
-            <div id="reviewShowBtn" style="text-align:center;margin-bottom:20px;">
+            <div id="reviewShowBtn" style="display:flex;gap:10px;justify-content:center;margin-bottom:20px;">
                 <button class="btn" onclick="showReviewAnswer()" style="padding:10px 32px;font-size:14px;">显示答案</button>
+                <button class="btn" id="reviewLeetCodeBtn" onclick="openReviewLeetCode()" style="padding:10px 24px;font-size:14px;background:#ffa116;color:#fff;border-color:#ffa116;">去做题 ↗</button>
+                <button class="btn" onclick="skipReview()" style="padding:10px 24px;font-size:14px;">已掌握，跳过</button>
+            </div>
+            <div id="reviewResources" style="display:none;margin-bottom:16px;">
+                <div style="font-size:13px;color:var(--text2);margin-bottom:6px;">关联资源</div>
+                <div id="reviewResourcesList" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
             </div>
             <div id="reviewActions" style="display:none;">
                 <div style="font-size:13px;color:var(--text2);margin-bottom:10px;text-align:center;">你的掌握程度：</div>
@@ -1118,17 +1128,21 @@ async function deleteTag(id, name) {
 
 // --- Dashboard ---
 async function loadDashboard() {
-    const [overview, byCategory, progress, recent] = await Promise.all([
+    const [overview, byCategory, progress, recent, heatmap] = await Promise.all([
         api('GET', '/stats/overview'),
         api('GET', '/stats/by-category'),
         api('GET', '/stats/progress'),
         api('GET', '/stats/recent?limit=10'),
+        api('GET', '/stats/heatmap'),
     ]);
 
     document.getElementById('stat-total').textContent = overview.total;
     document.getElementById('stat-solved').textContent = (overview.by_status['已解'] || 0);
     document.getElementById('stat-review').textContent = (overview.by_status['需复盘'] || 0);
     document.getElementById('stat-notes').textContent = overview.note_total || 0;
+
+    // Heatmap
+    renderHeatmap(heatmap);
 
     // Difficulty chart
     renderChart('chartDifficulty', 'doughnut', {
@@ -1185,7 +1199,7 @@ async function loadDashboard() {
     tbody.innerHTML = recent.map(p => `
         <tr>
             <td><strong>${p.leetcode_number}</strong></td>
-            <td>${p.title}</td>
+            <td>${p.title}${p.title_cn ? '<br><small style="color:var(--text2)">' + p.title_cn + '</small>' : ''}</td>
             <td>${difficultyBadge(p.difficulty)}</td>
             <td>${statusBadge(p.status)}</td>
             <td>${p.page_number ? 'P' + p.page_number : '-'}</td>
@@ -1199,6 +1213,93 @@ function renderChart(canvasId, type, data, extraOpts = {}) {
         type, data,
         options: { responsive: true, maintainAspectRatio: false, ...extraOpts },
     });
+}
+
+function renderHeatmap(data) {
+    const year = data.year;
+    const activity = data.activity;
+    document.getElementById('heatmapYear').textContent = year;
+
+    const container = document.getElementById('heatmapContainer');
+    const cellSize = 14;
+    const gap = 3;
+
+    // Build grid: 7 rows (Sun-Sat) x ~53 weeks
+    const startDate = new Date(year, 0, 1);
+    const endDate = new Date(year, 11, 31);
+    const startDay = startDate.getDay(); // 0=Sun
+
+    // Calculate max activity for color scaling
+    const maxActivity = Math.max(1, ...Object.values(activity));
+
+    function getColor(count) {
+        if (count === 0) return '#ebedf0';
+        if (count <= maxActivity * 0.25) return '#9be9a8';
+        if (count <= maxActivity * 0.5) return '#40c463';
+        if (count <= maxActivity * 0.75) return '#30a14e';
+        return '#216e39';
+    }
+
+    function formatDate(d) {
+        return d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+    }
+
+    let html = '<div style="display:inline-flex;gap:2px;">';
+
+    // Month labels
+    html += '<div style="display:flex;flex-direction:column;justify-content:flex-start;">';
+    html += '<div style="height:20px;font-size:11px;color:var(--text2);"></div>';
+    const months = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+    for (let m = 0; m < 12; m++) {
+        html += `<div style="font-size:11px;color:var(--text2);height:${cellSize + gap}px;line-height:${cellSize}px;">${months[m]}</div>`;
+    }
+    html += '</div>';
+
+    // Weeks
+    html += '<div>';
+    html += '<div style="display:flex;gap:2px;margin-bottom:4px;">';
+    for (let w = 0; w < 53; w++) {
+        html += `<div style="width:${cellSize}px;text-align:center;font-size:10px;color:var(--text2);">${w % 4 === 0 ? 'W' + w : ''}</div>`;
+    }
+    html += '</div>';
+
+    // Days grid
+    let current = new Date(startDate);
+    current.setDate(current.getDate() - startDay); // Start from Sunday
+
+    for (let day = 0; day < 7; day++) {
+        html += '<div style="display:flex;gap:2px;">';
+        for (let week = 0; week < 53; week++) {
+            const d = new Date(current);
+            d.setDate(d.getDate() + week * 7 + day);
+            if (d.getFullYear() === year) {
+                const dateStr = formatDate(d);
+                const count = activity[dateStr] || 0;
+                const color = getColor(count);
+                html += `<div style="width:${cellSize}px;height:${cellSize}px;background:${color};border-radius:2px;cursor:pointer;" title="${dateStr}: ${count} 活动"></div>`;
+            } else {
+                html += `<div style="width:${cellSize}px;height:${cellSize}px;"></div>`;
+            }
+        }
+        html += '</div>';
+    }
+
+    html += '</div></div>';
+
+    // Legend
+    html += '<div style="display:flex;align-items:center;gap:4px;margin-top:8px;font-size:11px;color:var(--text2);">';
+    html += '<span>少</span>';
+    html += '<div style="width:12px;height:12px;background:#ebedf0;border-radius:2px;"></div>';
+    html += '<div style="width:12px;height:12px;background:#9be9a8;border-radius:2px;"></div>';
+    html += '<div style="width:12px;height:12px;background:#40c463;border-radius:2px;"></div>';
+    html += '<div style="width:12px;height:12px;background:#30a14e;border-radius:2px;"></div>';
+    html += '<div style="width:12px;height:12px;background:#216e39;border-radius:2px;"></div>';
+    html += '<span>多</span>';
+    html += '</div>';
+
+    container.innerHTML = html;
 }
 
 // --- Import/Export ---
@@ -1413,14 +1514,27 @@ function renderReviewCard(data) {
 
     // Reset answer area
     document.getElementById('reviewAnswer').style.display = 'none';
-    document.getElementById('reviewShowBtn').style.display = 'block';
+    document.getElementById('reviewShowBtn').style.display = 'flex';
     document.getElementById('reviewActions').style.display = 'none';
+
+    // Update LeetCode button
+    const leetcodeBtn = document.getElementById('reviewLeetCodeBtn');
+    if (p.leetcode_slug) {
+        leetcodeBtn.style.display = 'inline-block';
+        leetcodeBtn.onclick = () => window.open(`https://leetcode.cn/problems/${p.leetcode_slug}/`, '_blank');
+    } else {
+        leetcodeBtn.style.display = 'none';
+    }
 
     // Prepare answer content
     if (p.notes) {
         document.getElementById('reviewNotes').innerHTML = '<strong>解题笔记：</strong><br>' + renderMarkdown(p.notes);
     } else {
-        document.getElementById('reviewNotes').innerHTML = '<em style="color:var(--text2)">暂无笔记</em>';
+        document.getElementById('reviewNotes').innerHTML = `
+            <div style="text-align:center;padding:12px;">
+                <div style="color:var(--text2);margin-bottom:12px;">暂无笔记</div>
+                ${p.leetcode_slug ? `<a href="https://leetcode.cn/problems/${p.leetcode_slug}/" target="_blank" class="btn btn-primary" style="display:inline-block;">去 LeetCode 做题</a>` : ''}
+            </div>`;
     }
 
     let complexity = [];
@@ -1433,6 +1547,9 @@ function renderReviewCard(data) {
     } else {
         document.getElementById('reviewUrl').innerHTML = '';
     }
+
+    // Load resources
+    loadReviewResources(p.id);
 }
 
 function showReviewAnswer() {
@@ -1453,6 +1570,52 @@ async function submitReview(rating) {
     }
 }
 
+function openReviewLeetCode() {
+    if (!currentReviewProblem) return;
+    const slug = currentReviewProblem.leetcode_slug;
+    if (slug) {
+        window.open(`https://leetcode.cn/problems/${slug}/`, '_blank');
+    } else {
+        showToast('暂无 LeetCode 链接', 'error');
+    }
+}
+
+async function skipReview() {
+    if (!currentReviewProblem) return;
+    try {
+        await api('POST', '/reviews', { problem_id: currentReviewProblem.id, rating: 3 });
+        showToast('已标记为非常熟练');
+        loadReview();
+        loadDashboard();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function loadReviewResources(problemId) {
+    try {
+        const resources = await api('GET', `/resources/problems/${problemId}`);
+        const container = document.getElementById('reviewResources');
+        const list = document.getElementById('reviewResourcesList');
+        if (resources.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+        container.style.display = 'block';
+        const icons = { link: '🔗', markdown: '📄', pdf: '📎', excel: '📊', image: '🖼️' };
+        list.innerHTML = resources.map(r => {
+            const icon = icons[r.resource_type] || '📁';
+            if (r.resource_type === 'link') {
+                return `<a href="${r.url}" target="_blank" class="btn" style="padding:6px 12px;font-size:13px;">${icon} ${r.name}</a>`;
+            } else {
+                return `<a href="/api/resources/${r.id}/download" class="btn" style="padding:6px 12px;font-size:13px;">${icon} ${r.name}</a>`;
+            }
+        }).join('');
+    } catch (e) {
+        // Silently ignore resource loading errors
+    }
+}
+
 function renderReviewHistory(items) {
     const card = document.getElementById('reviewHistoryCard');
     if (!items.length) { card.style.display = 'none'; return; }
@@ -1461,7 +1624,7 @@ function renderReviewHistory(items) {
     tbody.innerHTML = items.map(r => `
         <tr>
             <td>${r.leetcode_slug ? `<a href="https://leetcode.cn/problems/${r.leetcode_slug}/" target="_blank" style="color:var(--primary);text-decoration:none;"><strong>${r.leetcode_number}</strong> ↗</a>` : `<strong>${r.leetcode_number}</strong>`}</td>
-            <td>${r.title}</td>
+            <td>${r.title}${r.title_cn ? '<br><small style="color:var(--text2)">' + r.title_cn + '</small>' : ''}</td>
             <td><span style="color:${RATING_COLORS[r.rating]};font-weight:600;">${RATING_LABELS[r.rating]}</span></td>
             <td>${r.interval} 天</td>
             <td>${new Date(r.next_review_at).toLocaleDateString('zh-CN')}</td>
@@ -1491,9 +1654,21 @@ function showProblemDetail(p) {
     if (p.solution_url) html += `<div class="detail-field"><div class="detail-label">解题链接</div><div class="detail-value"><a href="${p.solution_url}" target="_blank">${p.solution_url}</a></div></div>`;
     if (p.time_complexity || p.space_complexity) html += `<div class="detail-field"><div class="detail-label">复杂度</div><div class="detail-value">时间: ${p.time_complexity||'-'} / 空间: ${p.space_complexity||'-'}</div></div>`;
     if (p.notes) html += `<div class="detail-field"><div class="detail-label">笔记</div><div class="detail-value detail-md">${renderMarkdown(p.notes)}</div></div>`;
+
+    // 资源区域
+    html += `<div class="detail-field"><div class="detail-label">资源</div>`;
+    html += `<div id="problemResources"><div style="color:var(--text2);font-size:13px;">加载中...</div></div>`;
+    html += `<div style="margin-top:8px;display:flex;gap:8px;">
+        <button class="btn btn-sm" onclick="showAddLinkModal(${p.id})">+ 添加链接</button>
+        <button class="btn btn-sm" onclick="uploadResourceFile(${p.id})">+ 上传文件</button>
+    </div></div>`;
+
     html += `<div class="modal-actions"><button class="btn" onclick="closeModal('detailModal')">关闭</button></div>`;
     document.getElementById('detailContent').innerHTML = html;
     openModal('detailModal');
+
+    // 加载资源列表
+    loadProblemResources(p.id);
 }
 
 function showNoteDetail(n) {
@@ -1507,6 +1682,109 @@ function showNoteDetail(n) {
     html += `<div class="modal-actions"><button class="btn" onclick="closeModal('detailModal')">关闭</button></div>`;
     document.getElementById('detailContent').innerHTML = html;
     openModal('detailModal');
+}
+
+// ========== 资源管理 ==========
+let currentResourceProblemId = null;
+
+const RESOURCE_ICONS = {
+    'link': '🔗',
+    'markdown': '📄',
+    'pdf': '📎',
+    'excel': '📊',
+    'image': '🖼️',
+};
+
+async function loadProblemResources(problemId) {
+    const el = document.getElementById('problemResources');
+    if (!el) return;
+
+    try {
+        const resources = await api('GET', '/resources/problems/' + problemId);
+        if (resources.length === 0) {
+            el.innerHTML = '<div style="color:var(--text2);font-size:13px;">暂无资源</div>';
+            return;
+        }
+
+        el.innerHTML = resources.map(r => `
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">
+                <span>${RESOURCE_ICONS[r.resource_type] || '📄'}</span>
+                ${r.url
+                    ? `<a href="${r.url}" target="_blank" style="flex:1;color:var(--primary);text-decoration:none;">${r.name}</a>`
+                    : `<a href="/api/resources/${r.id}/download" style="flex:1;color:var(--primary);text-decoration:none;">${r.name}</a>`
+                }
+                <button class="btn btn-sm btn-danger" onclick="deleteResource(${r.id})">删除</button>
+            </div>
+        `).join('');
+    } catch (e) {
+        el.innerHTML = '<div style="color:var(--danger);font-size:13px;">加载失败</div>';
+    }
+}
+
+function showAddLinkModal(problemId) {
+    currentResourceProblemId = problemId;
+    const name = prompt('链接名称:');
+    if (!name) return;
+    const url = prompt('链接 URL:');
+    if (!url) return;
+    addLinkResource(problemId, name, url);
+}
+
+async function addLinkResource(problemId, name, url) {
+    try {
+        await api('POST', '/resources/problems/' + problemId, {
+            resource_type: 'link',
+            name: name,
+            url: url,
+        });
+        showToast('链接已添加');
+        loadProblemResources(problemId);
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+function uploadResourceFile(problemId) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.md,.pdf,.xlsx,.xls,.csv,.png,.jpg,.jpeg,.gif';
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const res = await fetch('/api/resources/problems/' + problemId + '/upload', {
+                method: 'POST',
+                body: formData,
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ detail: '上传失败' }));
+                throw new Error(err.detail || '上传失败');
+            }
+            showToast('文件已上传');
+            loadProblemResources(problemId);
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+    };
+    input.click();
+}
+
+async function deleteResource(resourceId) {
+    if (!confirm('确定删除这个资源？')) return;
+    try {
+        await api('DELETE', '/resources/' + resourceId);
+        showToast('资源已删除');
+        // 重新加载当前题目的资源
+        if (currentResourceProblemId) {
+            loadProblemResources(currentResourceProblemId);
+        }
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
 }
 
 // ========== 全局搜索 ==========
@@ -1883,7 +2161,7 @@ async function loadReviewTimeline() {
         tbody.innerHTML = timeline.map(item => `
             <tr>
                 <td>${item.leetcode_slug ? `<a href="https://leetcode.cn/problems/${item.leetcode_slug}/" target="_blank" style="color:var(--primary);text-decoration:none;"><strong>${item.leetcode_number || '-'}</strong> ↗</a>` : `<strong>${item.leetcode_number || '-'}</strong>`}</td>
-                <td>${item.title || '-'}</td>
+                <td>${item.title || '-'}${item.title_cn ? '<br><small style="color:var(--text2)">' + item.title_cn + '</small>' : ''}</td>
                 <td>阶段 ${item.stage + 1}/${item.total_stages}</td>
                 <td>${new Date(item.next_review_at).toLocaleDateString('zh-CN')}</td>
                 <td>${item.is_overdue ? '<span style="color:var(--danger);">已到期</span>' : '<span style="color:var(--text2);">待复习</span>'}</td>

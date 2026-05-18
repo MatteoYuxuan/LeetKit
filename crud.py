@@ -6,6 +6,54 @@ from models import Problem, Category, Tag, Note, ReviewRecord, ReviewSchedule, p
 import schemas
 
 
+# --- LeetCode topicTags 到分类的映射 ---
+
+TOPIC_TAG_TO_CATEGORY = {
+    "Array": "数组",
+    "String": "字符串",
+    "Hash Table": "哈希表",
+    "Linked List": "链表",
+    "Stack": "栈",
+    "Queue": "队列",
+    "Binary Tree": "二叉树",
+    "Tree": "二叉树",
+    "Graph": "图",
+    "Dynamic Programming": "动态规划",
+    "Greedy": "贪心",
+    "Binary Search": "二分查找",
+    "Backtracking": "回溯",
+    "Sorting": "排序",
+    "Two Pointers": "双指针",
+    "Sliding Window": "滑动窗口",
+    "Bit Manipulation": "位运算",
+    "Math": "数学",
+    "Design": "设计",
+    "Heap (Priority Queue)": "堆",
+    "Union Find": "并查集",
+    "Trie": "字典树",
+    "Divide and Conquer": "分治",
+    "Recursion": "递归",
+    "Memoization": "记忆化",
+    "Depth-First Search": "深度优先搜索",
+    "Breadth-First Search": "广度优先搜索",
+    "Binary Indexed Tree": "树状数组",
+    "Segment Tree": "线段树",
+}
+
+
+def sync_problem_categories(db: Session, problem: Problem, topic_tag_names: list[str]):
+    """从 LeetCode topicTags 自动关联分类"""
+    for name in topic_tag_names:
+        cat_name = TOPIC_TAG_TO_CATEGORY.get(name)
+        if cat_name:
+            cat = db.query(Category).filter(Category.name == cat_name).first()
+            if not cat:
+                cat = Category(name=cat_name)
+                db.add(cat)
+            if cat not in problem.categories:
+                problem.categories.append(cat)
+
+
 # --- Sort key computation ---
 
 _PREFIX_ORDER = {
@@ -432,6 +480,41 @@ def get_stats_recent(db: Session, limit: int = 10) -> list[Problem]:
     return db.execute(stmt).unique().scalars().all()
 
 
+def get_stats_heatmap(db: Session, year: int = None) -> dict:
+    """获取热力图数据：每天的活动数量"""
+    from datetime import datetime, timedelta
+    if year is None:
+        year = datetime.now().year
+
+    # 获取问题创建/更新活动
+    stmt = (
+        select(
+            func.date(Problem.updated_at).label("date"),
+            func.count(Problem.id).label("count"),
+        )
+        .where(func.strftime("%Y", Problem.updated_at) == str(year))
+        .group_by("date")
+    )
+    rows = db.execute(stmt).all()
+    activity = {str(row[0]): row[1] for row in rows}
+
+    # 获取复习活动
+    from models import ReviewRecord
+    stmt2 = (
+        select(
+            func.date(ReviewRecord.created_at).label("date"),
+            func.count(ReviewRecord.id).label("count"),
+        )
+        .where(func.strftime("%Y", ReviewRecord.created_at) == str(year))
+        .group_by("date")
+    )
+    rows2 = db.execute(stmt2).all()
+    for date, count in rows2:
+        activity[str(date)] = activity.get(str(date), 0) + count
+
+    return {"year": year, "activity": activity}
+
+
 # --- Review (艾宾浩斯遗忘曲线) ---
 
 # 艾宾浩斯复习间隔（天）
@@ -634,6 +717,7 @@ def get_today_reviews(db: Session) -> list[dict]:
             "leetcode_number": r.problem.leetcode_number,
             "leetcode_slug": r.problem.leetcode_slug,
             "title": r.problem.title,
+            "title_cn": r.problem.title_cn,
             "rating": r.rating,
             "interval": r.interval,
             "next_review_at": next_at.isoformat(),
@@ -659,6 +743,7 @@ def get_review_timeline(db: Session) -> list[dict]:
             "leetcode_number": s.problem.leetcode_number if s.problem else None,
             "leetcode_slug": s.problem.leetcode_slug if s.problem else None,
             "title": s.problem.title if s.problem else None,
+            "title_cn": s.problem.title_cn if s.problem else None,
             "stage": s.stage,
             "total_stages": len(EBBINGHAUS_INTERVALS),
             "next_review_at": s.next_review_at.isoformat(),
