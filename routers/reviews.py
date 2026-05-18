@@ -17,8 +17,8 @@ def get_db():
 
 
 @router.get("/reviews/next")
-def get_next_review(exclude_id: int | None = None, db: Session = Depends(get_db)):
-    problem = crud.get_next_review(db, exclude_id=exclude_id)
+def get_next_review(daily_limit: int = 3, exclude_id: int | None = None, db: Session = Depends(get_db)):
+    problem = crud.get_next_review(db, daily_limit=daily_limit, exclude_id=exclude_id)
     if not problem:
         return None
     review_count = db.query(ReviewRecord).filter(ReviewRecord.problem_id == problem.id).count()
@@ -65,7 +65,7 @@ def get_next_review(exclude_id: int | None = None, db: Session = Depends(get_db)
 @router.post("/reviews", status_code=201)
 def submit_review(data: schemas.ReviewSubmit, db: Session = Depends(get_db)):
     try:
-        record = crud.submit_review(db, data.problem_id, data.rating)
+        record = crud.submit_review(db, data.problem_id, data.rating, data.time_spent)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return {
@@ -73,6 +73,7 @@ def submit_review(data: schemas.ReviewSubmit, db: Session = Depends(get_db)):
         "problem_id": record.problem_id,
         "rating": record.rating,
         "interval": record.interval,
+        "time_spent": record.time_spent,
         "created_at": record.created_at.isoformat(),
     }
 

@@ -532,7 +532,7 @@ def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def get_next_review(db: Session, daily_limit: int = 10, exclude_id: int | None = None) -> Problem | None:
+def get_next_review(db: Session, daily_limit: int = 3, exclude_id: int | None = None) -> Problem | None:
     now = _now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -605,7 +605,7 @@ def create_review_schedule(db: Session, problem_id: int) -> ReviewSchedule:
     return schedule
 
 
-def submit_review(db: Session, problem_id: int, rating: int) -> ReviewRecord:
+def submit_review(db: Session, problem_id: int, rating: int, time_spent: int | None = None) -> ReviewRecord:
     problem = db.get(Problem, problem_id)
     if not problem:
         raise ValueError("题目不存在")
@@ -649,6 +649,7 @@ def submit_review(db: Session, problem_id: int, rating: int) -> ReviewRecord:
         problem_id=problem_id,
         rating=rating,
         interval=new_interval,
+        time_spent=time_spent,
     )
     db.add(record)
 
@@ -722,6 +723,7 @@ def get_today_reviews(db: Session) -> list[dict]:
             "title_cn": r.problem.title_cn,
             "rating": r.rating,
             "interval": r.interval,
+            "time_spent": r.time_spent,
             "next_review_at": next_at.isoformat(),
         })
     return result

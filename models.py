@@ -107,6 +107,7 @@ class ReviewRecord(Base):
     problem_id: Mapped[int] = mapped_column(Integer, ForeignKey("problems.id", ondelete="CASCADE"), nullable=False)
     rating: Mapped[int] = mapped_column(Integer, nullable=False)
     interval: Mapped[int] = mapped_column(Integer, nullable=False)
+    time_spent: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     problem: Mapped["Problem"] = relationship("Problem", back_populates="reviews")

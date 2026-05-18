@@ -177,7 +177,8 @@ class ImportResult(BaseModel):
 
 class ReviewSubmit(BaseModel):
     problem_id: int
-    rating: Literal[0, 1, 2, 3]
+    rating: Literal[0, 1, 2]
+    time_spent: int | None = None
 
 
 class ReviewResponse(BaseModel):
@@ -185,6 +186,7 @@ class ReviewResponse(BaseModel):
     problem_id: int
     rating: int
     interval: int
+    time_spent: int | None = None
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 

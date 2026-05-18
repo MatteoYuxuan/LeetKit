@@ -54,6 +54,13 @@ def migrate_database():
         if col_name not in existing_columns:
             cursor.execute(f"ALTER TABLE notes ADD COLUMN {col_name} {col_type}")
 
+    # 获取 review_records 表现有列
+    cursor.execute("PRAGMA table_info(review_records)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    if "time_spent" not in existing_columns:
+        cursor.execute("ALTER TABLE review_records ADD COLUMN time_spent INTEGER")
+
     conn.commit()
     conn.close()
 
