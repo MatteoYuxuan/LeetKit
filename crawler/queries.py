@@ -43,6 +43,34 @@ query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $fi
     }
 }
 
+# 获取用户已通过的题目列表
+def get_user_solved_query(user_slug: str, skip: int = 0, first: int = 100):
+    return {
+        "operationName": "userProfileQuestions",
+        "query": """
+query userProfileQuestions($status: StatusFilterEnum!, $skip: Int!, $first: Int!) {
+    userProfileQuestions(status: $status, skip: $skip, first: $first) {
+        totalNum
+        questions {
+            translatedTitle
+            frontendId
+            titleSlug
+            title
+            difficulty
+            lastSubmittedAt
+            numSubmitted
+        }
+    }
+}
+""",
+        "variables": {
+            "userSlug": user_slug,
+            "status": "ACCEPTED",
+            "skip": skip,
+            "first": first
+        }
+    }
+
 # 获取用户做题进度（按难度统计）
 def get_user_progress_query(user_slug: str):
     return {
@@ -61,25 +89,6 @@ query userQuestionProgress($userSlug: String!) {
         numUntouchedQuestions {
             difficulty
             count
-        }
-    }
-}
-""",
-        "variables": {"userSlug": user_slug}
-    }
-
-# 获取用户最近通过的题目
-def get_recent_ac_query(user_slug: str):
-    return {
-        "operationName": "recentACSubmissions",
-        "query": """
-query recentACSubmissions($userSlug: String!) {
-    recentACSubmissions(userSlug: $userSlug) {
-        submissionId
-        submitTime
-        question {
-            translatedTitle
-            titleSlug
         }
     }
 }

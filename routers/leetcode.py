@@ -150,12 +150,11 @@ async def sync_progress(db: Session = Depends(get_db)):
 
         username = user_info["username"]
 
-        # 获取最近通过的题目（需要 userSlug）
-        recent_ac = await client.get_recent_ac_submissions(username)
+        # 获取用户已解决的题目
+        solved_problems = await client.get_user_solved_problems(username, limit=500)
 
         synced = 0
-        for submission in recent_ac:
-            question = submission.get("question", {})
+        for question in solved_problems:
             slug = question.get("titleSlug", "")
             if not slug:
                 continue
@@ -167,7 +166,7 @@ async def sync_progress(db: Session = Depends(get_db)):
                 synced += 1
 
         db.commit()
-        return {"synced": synced, "total_ac": len(recent_ac), "username": username}
+        return {"synced": synced, "total_solved": len(solved_problems), "username": username}
     except HTTPException:
         raise
     except Exception as e:

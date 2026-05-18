@@ -115,8 +115,9 @@ class LeetCodeClient:
         data = await self._graphql(payload)
         return data.get("data", {}).get("userProfileUserQuestionProgress", {})
 
-    async def get_recent_ac_submissions(self, user_slug: str) -> list:
-        """获取最近通过的题目"""
-        payload = queries.get_recent_ac_query(user_slug)
+    async def get_user_solved_problems(self, user_slug: str, limit: int = 100) -> list:
+        """获取用户已解决的题目列表"""
+        payload = queries.get_user_solved_query(user_slug, skip=0, first=limit)
         data = await self._graphql(payload)
-        return data.get("data", {}).get("recentACSubmissions", [])
+        result = data.get("data", {}).get("userProfileQuestions", {})
+        return result.get("questions", [])
