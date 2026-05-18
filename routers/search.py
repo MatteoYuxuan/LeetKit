@@ -31,7 +31,7 @@ def global_search(
                 Problem.title.ilike(pattern),
                 Problem.title_cn.ilike(pattern),
                 Problem.notes.ilike(pattern),
-                Problem.leetcode_number.cast(str).ilike(pattern),
+                Problem.leetcode_number.ilike(pattern),
             )
         ).limit(limit).all()
         results["problems"] = [

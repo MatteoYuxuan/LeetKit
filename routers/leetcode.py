@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from database import SessionLocal
 from models import Problem, LeetCodeCookie, Category
 from crawler.leetcode_client import LeetCodeClient
+from crud import compute_sort_key
 
 router = APIRouter(prefix="/leetcode", tags=["leetcode"])
 
@@ -78,11 +79,9 @@ async def search_problems(
     difficulty: str = None,
     limit: int = 50,
     skip: int = 0,
-    db: Session = Depends(get_db),
 ):
     try:
-        cookie = db.query(LeetCodeCookie).filter(LeetCodeCookie.is_active == 1).first()
-        client = LeetCodeClient(cookie=cookie.cookie_value if cookie else None)
+        client = LeetCodeClient()
         result = await client.search_problems(
             keyword=q if q else None,
             limit=limit,
@@ -94,12 +93,106 @@ async def search_problems(
         raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
 
 
+@router.get("/problems/{title_slug}/detail")
+async def get_problem_detail(title_slug: str):
+    try:
+        client = LeetCodeClient()
+        detail = await client.get_problem_detail(title_slug)
+        return detail
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取题目详情失败: {str(e)}")
+
+
+@router.post("/import-all")
+async def import_all_problems(include_paid: bool = False, db: Session = Depends(get_db)):
+    """一键导入所有 LeetCode 算法题目"""
+    try:
+        client = LeetCodeClient()
+        all_problems = await client.fetch_all_problems(include_paid=include_paid)
+
+        difficulty_map = {"Easy": "EASY", "Medium": "MEDIUM", "Hard": "HARD"}
+        imported = 0
+        updated = 0
+        skipped = 0
+
+        for item in all_problems:
+            frontend_id = item.get("frontendQuestionId", "")
+            if not frontend_id:
+                skipped += 1
+                continue
+
+            existing = db.query(Problem).filter(Problem.leetcode_number == frontend_id).first()
+            if existing:
+                # 补充缺失的 slug
+                if not existing.leetcode_slug and item.get("titleSlug"):
+                    existing.leetcode_slug = item["titleSlug"]
+                    updated += 1
+                # 修正难度值为大写英文
+                if existing.difficulty in ("简单", "中等", "困难"):
+                    cn_map = {"简单": "EASY", "中等": "MEDIUM", "困难": "HARD"}
+                    existing.difficulty = cn_map.get(existing.difficulty, existing.difficulty)
+                    updated += 1
+                # 修正排序键
+                correct_sort = compute_sort_key(frontend_id)
+                if existing.leetcode_number_sort != correct_sort:
+                    existing.leetcode_number_sort = correct_sort
+                    updated += 1
+                skipped += 1
+                continue
+
+            difficulty = item.get("difficulty", "Medium")
+            difficulty_upper = difficulty_map.get(difficulty, "MEDIUM")
+
+            problem = Problem(
+                leetcode_number=frontend_id,
+                leetcode_number_sort=compute_sort_key(frontend_id),
+                title=item.get("title", ""),
+                title_cn="",
+                leetcode_slug=item.get("titleSlug", ""),
+                difficulty=difficulty_upper,
+                status="未做",
+                ac_rate=item.get("acRate"),
+                last_synced_at=datetime.now(timezone.utc),
+            )
+            db.add(problem)
+            imported += 1
+
+        db.commit()
+        return {"imported": imported, "updated": updated, "skipped": skipped, "total": len(all_problems)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
+
+
+@router.post("/sync-titles")
+async def sync_chinese_titles(db: Session = Depends(get_db)):
+    """批量同步题目的中文标题"""
+    try:
+        client = LeetCodeClient()
+        titles_map = await client.fetch_all_problem_titles()
+
+        problems = db.query(Problem).filter(
+            (Problem.title_cn == None) | (Problem.title_cn == "")
+        ).all()
+
+        updated = 0
+        for p in problems:
+            fid = str(p.leetcode_number)
+            if fid in titles_map:
+                p.title_cn = titles_map[fid]
+                updated += 1
+
+        db.commit()
+        return {"updated": updated, "total": len(problems)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"同步失败: {str(e)}")
+
+
 @router.post("/import")
 def import_problems(data: ImportRequest, db: Session = Depends(get_db)):
     imported = 0
     skipped = 0
     for item in data.problems:
-        qid = int(item.get("frontendQuestionId", 0))
+        qid = item.get("frontendQuestionId", "")
         if not qid:
             skipped += 1
             continue
@@ -112,12 +205,13 @@ def import_problems(data: ImportRequest, db: Session = Depends(get_db)):
         topic_tags = item.get("topicTags", [])
         tag_names = [t.get("name", "") for t in topic_tags]
 
-        difficulty_map = {"Easy": "简单", "Medium": "中等", "Hard": "困难"}
+        difficulty_map = {"Easy": "EASY", "Medium": "MEDIUM", "Hard": "HARD", "easy": "EASY", "medium": "MEDIUM", "hard": "HARD"}
         difficulty = item.get("difficulty", "Medium")
         difficulty_cn = difficulty_map.get(difficulty, difficulty)
 
         problem = Problem(
             leetcode_number=qid,
+            leetcode_number_sort=compute_sort_key(qid),
             title=item.get("title", ""),
             title_cn=item.get("titleCn", ""),
             leetcode_slug=item.get("titleSlug", ""),
@@ -171,3 +265,17 @@ async def sync_progress(db: Session = Depends(get_db)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"同步失败: {str(e)}")
+
+
+@router.post("/fix-sort-keys")
+def fix_sort_keys(db: Session = Depends(get_db)):
+    """修正所有题目的排序键"""
+    problems = db.query(Problem).all()
+    updated = 0
+    for p in problems:
+        correct = compute_sort_key(p.leetcode_number)
+        if p.leetcode_number_sort != correct:
+            p.leetcode_number_sort = correct
+            updated += 1
+    db.commit()
+    return {"updated": updated, "total": len(problems)}

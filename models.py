@@ -60,7 +60,8 @@ class Problem(Base):
     __tablename__ = "problems"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    leetcode_number: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
+    leetcode_number: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    leetcode_number_sort: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     title_cn: Mapped[str | None] = mapped_column(String(200), nullable=True)
     leetcode_slug: Mapped[str | None] = mapped_column(String(200), nullable=True)

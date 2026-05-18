@@ -1,8 +1,36 @@
+import re
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 from models import Problem, Category, Tag, Note, ReviewRecord, ReviewSchedule, problem_tags, note_tags, problem_categories, note_categories
 import schemas
+
+
+# --- Sort key computation ---
+
+_PREFIX_ORDER = {
+    "LCP": 1_000_000,
+    "LCR": 2_000_000,
+    "LCS": 3_000_000,
+    "LCOF": 4_000_000,
+    "LCOF2": 5_000_000,
+}
+
+
+def compute_sort_key(frontend_id: str) -> int:
+    """Compute a numeric sort key from frontendQuestionId.
+    Pure numbers sort numerically; prefixed IDs (LCP, LCR, etc.) sort after
+    all regular numbers, grouped by prefix then by suffix number."""
+    s = frontend_id.strip()
+    if s.isdigit():
+        return int(s)
+    m = re.match(r"^([A-Za-z]+)\s*(\d+)$", s)
+    if m:
+        prefix = m.group(1).upper()
+        num = int(m.group(2))
+        offset = _PREFIX_ORDER.get(prefix, 9_000_000)
+        return offset + num
+    return 9_999_999
 
 
 # --- Category CRUD ---
@@ -156,13 +184,17 @@ def get_problems(
             Problem.title.ilike(pattern),
             Problem.title_cn.ilike(pattern),
             Problem.notes.ilike(pattern),
+            Problem.leetcode_number.ilike(pattern),
         )
         stmt = stmt.where(search_filter)
         count_stmt = count_stmt.where(search_filter)
 
     total = db.scalar(count_stmt) or 0
 
-    sort_column = getattr(Problem, sort_by, Problem.leetcode_number)
+    if sort_by == "leetcode_number":
+        sort_column = Problem.leetcode_number_sort
+    else:
+        sort_column = getattr(Problem, sort_by, Problem.leetcode_number_sort)
     if sort_order == "desc":
         stmt = stmt.order_by(sort_column.desc())
     else:
@@ -182,6 +214,8 @@ def create_problem(db: Session, data: schemas.ProblemCreate) -> Problem:
     tag_ids = data.tag_ids
     category_ids = data.category_ids
     problem_data = data.model_dump(exclude={"tag_ids", "category_ids"})
+    if "leetcode_number_sort" not in problem_data or not problem_data["leetcode_number_sort"]:
+        problem_data["leetcode_number_sort"] = compute_sort_key(problem_data["leetcode_number"])
     problem = Problem(**problem_data)
     if tag_ids:
         tags = db.query(Tag).filter(Tag.id.in_(tag_ids)).all()

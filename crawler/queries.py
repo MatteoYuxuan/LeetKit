@@ -13,43 +13,73 @@ query globalData {
     "variables": {}
 }
 
-SEARCH_PROBLEMS = {
-    "operationName": "problemsetQuestionList",
-    "query": """
+# 获取题目详情
+def get_problem_detail_query(title_slug: str) -> dict:
+    return {
+        "operationName": "questionDetail",
+        "query": """
+query questionDetail($titleSlug: String!) {
+    question(titleSlug: $titleSlug) {
+        questionId
+        questionFrontendId
+        title
+        translatedTitle
+        titleSlug
+        content
+        translatedContent
+        difficulty
+        topicTags {
+            name
+            slug
+        }
+        codeSnippets {
+            lang
+            langSlug
+            code
+        }
+        stats
+        hints
+        similarQuestions
+    }
+}
+""",
+        "variables": {"titleSlug": title_slug}
+    }
+
+
+# 批量获取题目列表（含中文标题）
+def get_all_problems_query(skip: int = 0, limit: int = 100) -> dict:
+    return {
+        "operationName": "problemsetQuestionList",
+        "query": """
 query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
-    problemsetQuestionList: questionList(categorySlug: $categorySlug, limit: $limit, skip: $skip, filters: $filters) {
+    problemsetQuestionList(categorySlug: $categorySlug, limit: $limit, skip: $skip, filters: $filters) {
         total
         questions {
-            frontendQuestionId: questionFrontendId
+            frontendQuestionId
             title
             titleCn
-            difficulty
-            topicTags {
-                name
-                nameTranslated
-            }
-            status
-            acRate
             titleSlug
         }
     }
 }
 """,
-    "variables": {
-        "categorySlug": "",
-        "skip": 0,
-        "limit": 50,
-        "filters": {}
+        "variables": {
+            "categorySlug": "",
+            "skip": skip,
+            "limit": limit,
+            "filters": {}
+        }
     }
-}
+
 
 # 获取用户已通过的题目列表
 def get_user_solved_query(user_slug: str, skip: int = 0, first: int = 100):
     return {
         "operationName": "userProfileQuestions",
         "query": """
-query userProfileQuestions($status: StatusFilterEnum!, $skip: Int!, $first: Int!) {
-    userProfileQuestions(status: $status, skip: $skip, first: $first) {
+query userProfileQuestions($status: StatusFilterEnum!, $skip: Int!, $first: Int!, $sortField: SortFieldEnum!, $sortOrder: SortingOrderEnum!) {
+    userProfileQuestions(status: $status, skip: $skip, first: $first, sortField: $sortField, sortOrder: $sortOrder) {
         totalNum
         questions {
             translatedTitle
@@ -64,10 +94,11 @@ query userProfileQuestions($status: StatusFilterEnum!, $skip: Int!, $first: Int!
 }
 """,
         "variables": {
-            "userSlug": user_slug,
             "status": "ACCEPTED",
             "skip": skip,
-            "first": first
+            "first": first,
+            "sortField": "LAST_SUBMITTED_AT",
+            "sortOrder": "DESCENDING"
         }
     }
 

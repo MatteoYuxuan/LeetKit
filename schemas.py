@@ -44,7 +44,7 @@ class TagResponse(TagCreate):
 # --- Problem ---
 
 class ProblemCreate(BaseModel):
-    leetcode_number: int
+    leetcode_number: str
     title: str = Field(..., max_length=200)
     title_cn: str | None = None
     leetcode_slug: str | None = None
@@ -76,7 +76,7 @@ class ProblemUpdate(BaseModel):
 
 class ProblemResponse(BaseModel):
     id: int
-    leetcode_number: int
+    leetcode_number: str
     title: str
     title_cn: str | None
     leetcode_slug: str | None

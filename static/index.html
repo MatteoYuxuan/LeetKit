@@ -531,7 +531,14 @@ tr:hover td { background: #f9fafb; }
         </div>
     </div>
     <div class="card" style="margin-top:16px;">
-        <div class="card-title">题目搜索与导入</div>
+        <div class="card-title">题目导入</div>
+        <p style="font-size:13px; color:var(--text2); margin-bottom:12px;">一键导入 LeetCode 全部算法题目（约 3000+ 道），已有的题目会自动跳过。</p>
+        <div style="display:flex; gap:10px; margin-bottom:16px;">
+            <button class="btn btn-primary" onclick="importAllProblems()">一键导入全部题目</button>
+            <button class="btn" onclick="syncChineseTitles()">同步中文标题</button>
+            <button class="btn" onclick="fixSortKeys()">修正排序</button>
+        </div>
+        <div class="card-title" style="margin-top:16px;">搜索与单独导入</div>
         <div style="display:flex; gap:10px; margin-bottom:12px;">
             <input type="text" id="lcSearchInput" placeholder="搜索 LeetCode 题目..." style="flex:1;">
             <select id="lcSearchDifficulty" style="width:120px;">
@@ -795,7 +802,7 @@ function renderProblemsTable(data) {
             <td onclick="event.stopPropagation()">
                 <div class="btn-group">
                     <button class="btn btn-sm" onclick='openProblemModal(${JSON.stringify(p)})'>编辑</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteProblem(${p.id}, ${p.leetcode_number})">删除</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteProblem(${p.id}, '${p.leetcode_number}')">删除</button>
                 </div>
             </td>
         </tr>
@@ -925,7 +932,7 @@ async function saveProblem() {
     const category_ids = [...document.querySelectorAll('#pCategories input:checked')].map(c => parseInt(c.value));
     const tag_ids = [...document.querySelectorAll('#pTags input:checked')].map(c => parseInt(c.value));
     const body = {
-        leetcode_number: parseInt(document.getElementById('pLeetcodeNumber').value),
+        leetcode_number: document.getElementById('pLeetcodeNumber').value.trim(),
         title: document.getElementById('pTitle').value.trim(),
         title_cn: document.getElementById('pTitleCn').value.trim() || null,
         page_number: document.getElementById('pPageNumber').value ? parseInt(document.getElementById('pPageNumber').value) : null,
@@ -1818,6 +1825,42 @@ async function syncLeetCodeProgress() {
         el.innerHTML = `<span style="color:var(--success);">✓ 同步完成</span>：已更新 ${data.synced} 道题的状态`;
         loadProblems();
         loadDashboard();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function importAllProblems() {
+    if (!confirm('确定要导入全部 LeetCode 算法题目吗？已有题目会自动跳过。')) return;
+    try {
+        showToast('正在导入，请稍候...');
+        const data = await api('POST', '/leetcode/import-all');
+        showToast(`导入完成：新增 ${data.imported} 道，更新 ${data.updated} 道，跳过 ${data.skipped} 道`);
+        loadProblems();
+        loadDashboard();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function syncChineseTitles() {
+    if (!confirm('同步中文标题需要逐题请求 LeetCode，可能需要几分钟，确定继续？')) return;
+    try {
+        showToast('正在同步中文标题，请稍候...');
+        const data = await api('POST', '/leetcode/sync-titles');
+        showToast(`同步完成：已更新 ${data.updated} 道题的中文标题`);
+        loadProblems();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function fixSortKeys() {
+    try {
+        showToast('正在修正排序键...');
+        const data = await api('POST', '/leetcode/fix-sort-keys');
+        showToast(`修正完成：已更新 ${data.updated} / ${data.total} 道题`);
+        loadProblems();
     } catch (e) {
         showToast(e.message, 'error');
     }

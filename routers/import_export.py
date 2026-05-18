@@ -243,7 +243,7 @@ async def import_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
                 tag_ids.append(existing_tag[tn])
 
             problem_data = schemas.ProblemCreate(
-                leetcode_number=int(lc_num),
+                leetcode_number=str(lc_num),
                 title=row.get("title", f"Problem {lc_num}"),
                 title_cn=row.get("title_cn") or None,
                 page_number=int(row["page_number"]) if row.get("page_number") else None,
