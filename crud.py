@@ -24,6 +24,13 @@ def compute_sort_key(frontend_id: str) -> int:
     s = frontend_id.strip()
     if s.isdigit():
         return int(s)
+    # 先尝试匹配已知前缀（包括 LCOF2 等含数字的前缀）
+    for prefix in sorted(_PREFIX_ORDER.keys(), key=len, reverse=True):
+        if s.upper().startswith(prefix):
+            rest = s[len(prefix):].strip()
+            if rest.isdigit():
+                return _PREFIX_ORDER[prefix] + int(rest)
+    # 通用模式：字母前缀 + 数字
     m = re.match(r"^([A-Za-z]+)\s*(\d+)$", s)
     if m:
         prefix = m.group(1).upper()

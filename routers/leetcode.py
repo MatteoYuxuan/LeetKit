@@ -7,6 +7,7 @@ from database import SessionLocal
 from models import Problem, LeetCodeCookie, Category
 from crawler.leetcode_client import LeetCodeClient
 from crud import compute_sort_key
+from security import encrypt_cookie, decrypt_cookie
 
 router = APIRouter(prefix="/leetcode", tags=["leetcode"])
 
@@ -38,8 +39,10 @@ async def login(data: CookieLogin, db: Session = Depends(get_db)):
         # 清除旧 cookie
         db.query(LeetCodeCookie).delete()
 
+        # 加密 Cookie 后存储
+        encrypted = encrypt_cookie(data.cookie)
         cookie_record = LeetCodeCookie(
-            cookie_value=data.cookie,
+            cookie_value=encrypted,
             leetcode_username=result["username"],
             is_active=1,
             last_validated_at=datetime.now(timezone.utc),
@@ -235,7 +238,13 @@ async def sync_progress(db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="未登录 LeetCode")
 
     try:
-        client = LeetCodeClient(cookie=cookie.cookie_value)
+        # 解密 Cookie（兼容旧的明文数据）
+        try:
+            cookie_value = decrypt_cookie(cookie.cookie_value)
+        except Exception:
+            cookie_value = cookie.cookie_value
+
+        client = LeetCodeClient(cookie=cookie_value)
 
         # 先验证 cookie 并获取用户名
         user_info = await client.verify_cookie()
