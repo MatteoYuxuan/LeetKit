@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from database import engine, Base, SessionLocal
 from models import Category
-from routers import problems, categories, tags, stats, import_export, notes, reviews, search, problem_lists, leetcode, batch, resources
+from routers import problems, categories, tags, stats, import_export, notes, reviews, search, problem_lists, leetcode, batch, resources, checkin
 
 DEFAULT_CATEGORIES = [
     "数组", "字符串", "链表", "栈", "队列", "哈希表",
@@ -36,6 +36,7 @@ def migrate_database():
         "topic_tags": "TEXT",
         "ac_rate": "REAL",
         "last_synced_at": "TIMESTAMP",
+        "solved_at": "TIMESTAMP",
     }
     for col_name, col_type in new_columns.items():
         if col_name not in existing_columns:
@@ -60,6 +61,15 @@ def migrate_database():
 
     if "time_spent" not in existing_columns:
         cursor.execute("ALTER TABLE review_records ADD COLUMN time_spent INTEGER")
+
+    # 创建 daily_checkins 表（如果不存在）
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS daily_checkins (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date VARCHAR(10) UNIQUE NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
     conn.commit()
     conn.close()
@@ -96,6 +106,7 @@ app.include_router(problem_lists.router, prefix="/api")
 app.include_router(leetcode.router, prefix="/api")
 app.include_router(batch.router, prefix="/api")
 app.include_router(resources.router, prefix="/api")
+app.include_router(checkin.router, prefix="/api")
 
 
 @app.get("/")

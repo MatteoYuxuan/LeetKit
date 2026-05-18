@@ -279,6 +279,7 @@ async def sync_progress(db: Session = Depends(get_db)):
             problem = db.query(Problem).filter(Problem.leetcode_slug == slug).first()
             if problem and problem.status == "未做":
                 problem.status = "已解"
+                problem.solved_at = datetime.now(timezone.utc)
                 problem.last_synced_at = datetime.now(timezone.utc)
                 synced += 1
 

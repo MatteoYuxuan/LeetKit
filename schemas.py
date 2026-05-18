@@ -90,6 +90,7 @@ class ProblemResponse(BaseModel):
     time_complexity: str | None
     space_complexity: str | None
     ac_rate: float | None
+    solved_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
@@ -158,10 +159,13 @@ class StatsOverview(BaseModel):
 class CategoryStats(BaseModel):
     name: str
     count: int
+    solved: int = 0
 
 
 class ProgressPoint(BaseModel):
-    week: str
+    month: str = ""
+    week: str = ""
+    count: int = 0
     cumulative_solved: int
 
 
@@ -201,3 +205,17 @@ class ReviewStatsResponse(BaseModel):
     pending: int
     completed_today: int
     total_reviews: int
+
+
+class CheckinStats(BaseModel):
+    checked_in_today: bool
+    streak: int
+    longest_streak: int
+    total_checkins: int
+
+
+class CheckinResponse(BaseModel):
+    is_first_today: bool
+    streak: int
+    longest_streak: int
+    total_checkins: int

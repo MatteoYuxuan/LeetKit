@@ -36,3 +36,8 @@ def stats_recent(limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_
 @router.get("/stats/heatmap")
 def stats_heatmap(year: int = Query(None), db: Session = Depends(get_db)):
     return crud.get_stats_heatmap(db, year)
+
+
+@router.post("/stats/reset-solved-at")
+def reset_solved_at(db: Session = Depends(get_db)):
+    return crud.reset_solved_at(db)

@@ -60,17 +60,92 @@ a:hover { text-decoration: underline; }
 .card {
     background: var(--card); border-radius: var(--radius); border: 1px solid var(--border);
     padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow);
+    transition: box-shadow 0.2s;
 }
-.card-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+.card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.card-title {
+    font-size: 16px; font-weight: 600; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 6px;
+}
 
 /* Stats cards */
 .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
 .stat-card {
     background: var(--card); border-radius: var(--radius); border: 1px solid var(--border);
     padding: 20px; text-align: center; box-shadow: var(--shadow);
+    transition: transform 0.2s, box-shadow 0.2s;
+    position: relative; overflow: hidden;
 }
+.stat-card::before {
+    content: '';
+    position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
+    background: var(--primary); opacity: 0.5;
+    transition: opacity 0.2s;
+}
+.stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.1); }
+.stat-card:hover::before { opacity: 1; }
+.stat-card:nth-child(2)::before { background: var(--success); }
+.stat-card:nth-child(3)::before { background: var(--purple); }
+.stat-card:nth-child(4)::before { background: var(--info); }
 .stat-number { font-size: 32px; font-weight: 700; color: var(--primary); }
 .stat-label { font-size: 13px; color: var(--text2); margin-top: 4px; }
+
+/* Profile card */
+#profileCard {
+    background: linear-gradient(135deg, #f8faff 0%, #f0f4ff 100%);
+    border: 1px solid #e0e7ff;
+}
+#profileCard .card-title {
+    font-size: 17px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.profile-stat {
+    text-align: center;
+    padding: 12px 8px;
+    background: var(--card);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    transition: transform 0.2s;
+}
+.profile-stat:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.profile-stat .num { font-size: 26px; font-weight: 700; line-height: 1.2; }
+.profile-stat .lbl { font-size: 12px; color: var(--text2); margin-top: 4px; }
+.profile-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 500;
+    transition: transform 0.15s;
+}
+.profile-tag:hover { transform: scale(1.05); }
+.profile-tag b { font-weight: 700; }
+.profile-tag-hot {
+    background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+    color: #4338ca; border: 1px solid #c7d2fe;
+}
+.profile-tag-cold {
+    background: linear-gradient(135deg, #fef2f2, #fee2e2);
+    color: #991b1b; border: 1px solid #fecaca;
+}
+.profile-section-title {
+    font-size: 13px; color: var(--text2); margin-bottom: 6px;
+    display: flex; align-items: center; gap: 4px;
+}
+
+/* Heatmap cells */
+.heatmap-cell {
+    transition: transform 0.1s, box-shadow 0.1s;
+    cursor: pointer;
+}
+.heatmap-cell:hover {
+    transform: scale(1.6);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    z-index: 10;
+    position: relative;
+}
+.heatmap-checked:hover {
+    background: #16a34a !important;
+}
 
 /* Charts */
 .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
@@ -173,6 +248,43 @@ tr:hover td { background: #f9fafb; }
 
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes popIn {
+    0% { transform: scale(0); opacity: 0; }
+    60% { transform: scale(1.2); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+/* Checkin modal */
+.checkin-overlay {
+    position: fixed; inset: 0; z-index: 400;
+    background: rgba(0,0,0,0.3); backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    animation: fadeIn 0.3s;
+}
+.checkin-box {
+    background: var(--card); border-radius: 20px; padding: 40px 48px;
+    text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+    animation: slideUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    max-width: 420px; width: 90vw;
+}
+.checkin-icon {
+    font-size: 64px; animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) 0.1s both;
+    margin-bottom: 16px;
+}
+.checkin-streak {
+    font-size: 15px; color: var(--primary); font-weight: 700; margin-bottom: 12px;
+}
+.checkin-quote {
+    font-size: 15px; color: var(--text2); line-height: 1.6; margin-bottom: 20px;
+    max-width: 320px; margin-left: auto; margin-right: auto;
+}
+.checkin-btn {
+    padding: 10px 40px; border-radius: 8px; border: none;
+    background: var(--primary); color: #fff; font-size: 15px;
+    cursor: pointer; font-family: var(--font); font-weight: 600;
+    transition: all 0.2s;
+}
+.checkin-btn:hover { background: #4338ca; }
 
 /* Toast */
 .toast {
@@ -337,15 +449,34 @@ tr:hover td { background: #f9fafb; }
         <div class="stat-card"><div class="stat-number" id="stat-review" style="color:var(--purple)">0</div><div class="stat-label">待复盘</div></div>
         <div class="stat-card"><div class="stat-number" id="stat-notes" style="color:var(--info)">0</div><div class="stat-label">笔记数</div></div>
     </div>
+    <div class="card" id="profileCard" style="display:none;">
+        <div class="card-title">用户画像 <span id="profileStreak" style="font-size:13px;color:var(--text2);margin-left:8px;"></span></div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;">
+            <div class="profile-stat"><div class="num" style="color:#f59e0b;" id="profStreak">0</div><div class="lbl">🔥 连续签到</div></div>
+            <div class="profile-stat"><div class="num" style="color:#10b981;" id="profLongStreak">0</div><div class="lbl">🏆 最长连续</div></div>
+            <div class="profile-stat"><div class="num" style="color:var(--primary);" id="profCheckins">0</div><div class="lbl">📅 总签到</div></div>
+            <div class="profile-stat"><div class="num" style="color:var(--success);" id="profSolved">0</div><div class="lbl">✅ 已解决</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+            <div id="profDifficulty"></div>
+            <div id="profCategories"></div>
+        </div>
+    </div>
     <div class="charts-row">
         <div class="card"><div class="card-title">按难度分布</div><div class="chart-container"><canvas id="chartDifficulty"></canvas></div></div>
         <div class="card"><div class="card-title">按状态分布</div><div class="chart-container"><canvas id="chartStatus"></canvas></div></div>
     </div>
     <div class="card">
-        <div class="card-title">刷题打卡热力图 <span id="heatmapYear" style="font-size:13px;color:var(--text2);margin-left:8px;"></span></div>
+        <div class="card-title">每日签到热力图 <span id="heatmapYear" style="font-size:13px;color:var(--text2);margin-left:8px;"></span></div>
         <div id="heatmapContainer" style="overflow-x:auto;padding:12px 0;"></div>
     </div>
-    <div class="card"><div class="card-title">解题进度趋势</div><div class="chart-container" style="height:220px"><canvas id="chartProgress"></canvas></div></div>
+    <div class="card">
+        <div class="card-title" style="justify-content:space-between;">
+            <span>解题进度趋势</span>
+            <button class="btn" style="font-size:12px;padding:4px 10px;" onclick="resetSolvedAt()" title="重置趋势数据，清空所有已记录的解题时间">重置趋势</button>
+        </div>
+        <div class="chart-container" style="height:280px"><canvas id="chartProgress"></canvas></div>
+    </div>
     <div class="card"><div class="card-title">按分类统计</div><div class="chart-container" style="height:auto; max-height:400px"><canvas id="chartCategory"></canvas></div></div>
     <div class="card">
         <div class="card-title">最近更新</div>
@@ -779,10 +910,56 @@ tr:hover td { background: #f9fafb; }
 </div>
 </div>
 
+<!-- Checkin Modal -->
+<div class="checkin-overlay" id="checkinModal" style="display:none;">
+<div class="checkin-box">
+    <div class="checkin-icon" id="checkinIcon">✅</div>
+    <div style="font-size:22px;font-weight:700;margin-bottom:4px;">今日已签到</div>
+    <div class="checkin-streak" id="checkinStreak"></div>
+    <div class="checkin-quote" id="checkinQuote"></div>
+    <button class="checkin-btn" onclick="closeCheckinModal()">继续学习 →</button>
+</div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
 <script>
+// --- Check-in ---
+const MOTIVATIONAL_QUOTES = [
+    "每个大神都是从第一道题开始的 💪",
+    "坚持就是胜利，今天又是进步的一天！",
+    "不积跬步，无以至千里 🚀",
+    "代码改变世界，一道题一道题来 🌍",
+    "今天比昨天强，这就是希望 ⚡",
+    "你不是在刷题，你是在投资未来 📈",
+    "自律给你自由 🔥",
+    "每天进步一点点，一年后你会感谢自己 🙏",
+    "刷题人的浪漫：Accept 的那一刻 ✨",
+    "所有的逆袭，都是有备而来 💎",
+    "别让明天的你，后悔今天的偷懒 ⏰",
+    "热爱可抵岁月漫长 ❤️",
+    "怕什么真理无穷，进一寸有一寸的欢喜 📖",
+    "你的坚持，终将美好 🌈",
+    "刷的不是题，是思维模型 🧠",
+];
+
+async function doCheckin() {
+    try {
+        const data = await api('POST', '/checkin');
+        if (data.is_first_today) {
+            const quote = MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)];
+            document.getElementById('checkinStreak').textContent = `已连续签到 ${data.streak} 天`;
+            document.getElementById('checkinQuote').textContent = quote;
+            document.getElementById('checkinModal').style.display = 'flex';
+        }
+    } catch (e) { /* silent */ }
+}
+
+function closeCheckinModal() {
+    document.getElementById('checkinModal').style.display = 'none';
+}
+
 // --- State ---
 let currentPage = 1;
 let noteCurrentPage = 1;
@@ -1298,19 +1475,36 @@ async function deleteTag(id, name) {
 }
 
 // --- Dashboard ---
+// 静默自动同步 LeetCode 进度（节流控制）
+let _lcSyncThrottle = 0;
+function autoSyncLcProgress(minInterval) {
+    const now = Date.now();
+    if (now - _lcSyncThrottle < minInterval) return;
+    _lcSyncThrottle = now;
+    api('POST', '/leetcode/sync-progress').then(data => {
+        if (data.synced > 0) loadDashboard();
+    }).catch(() => {});
+}
+
 async function loadDashboard() {
-    const [overview, byCategory, progress, recent, heatmap] = await Promise.all([
+    autoSyncLcProgress(60 * 1000); // 切到仪表盘时同步，1 分钟内最多一次
+
+    const [overview, byCategory, progress, recent, heatmap, checkin] = await Promise.all([
         api('GET', '/stats/overview'),
         api('GET', '/stats/by-category'),
         api('GET', '/stats/progress'),
         api('GET', '/stats/recent?limit=10'),
         api('GET', '/stats/heatmap'),
+        api('GET', '/checkin/stats').catch(() => null),
     ]);
 
     document.getElementById('stat-total').textContent = overview.total;
     document.getElementById('stat-solved').textContent = (overview.by_status['已解'] || 0);
     document.getElementById('stat-review').textContent = (overview.by_status['需复盘'] || 0);
     document.getElementById('stat-notes').textContent = overview.note_total || 0;
+
+    // User profile
+    renderUserProfile(overview, byCategory, checkin);
 
     // Heatmap
     renderHeatmap(heatmap);
@@ -1342,28 +1536,104 @@ async function loadDashboard() {
         }],
     });
 
-    // Progress chart
-    renderChart('chartProgress', 'line', {
-        labels: progress.map(p => p.week),
-        datasets: [{
-            label: '累计已解',
-            data: progress.map(p => p.cumulative_solved),
-            borderColor: '#4f46e5',
-            backgroundColor: 'rgba(79,70,229,0.1)',
-            fill: true, tension: 0.3, pointRadius: 4,
-        }],
-    }, { plugins: { legend: { display: false } } });
+    // Progress chart: monthly bars + cumulative line (dual axis)
+    const progressCanvas = document.getElementById('chartProgress');
+    if (progress.length === 0) {
+        if (charts['chartProgress']) { charts['chartProgress'].destroy(); charts['chartProgress'] = null; }
+        progressCanvas.style.display = 'none';
+        const emptyMsg = progressCanvas.parentElement.querySelector('.chart-empty');
+        if (!emptyMsg) {
+            const p = document.createElement('div');
+            p.className = 'chart-empty';
+            p.style.cssText = 'text-align:center;padding:40px 0;color:var(--text2);font-size:14px;';
+            p.innerHTML = '📊 解题趋势将在新解题记录后显示<br><span style="font-size:12px;margin-top:4px;display:inline-block;">之前导入的题目不会计入趋势统计</span>';
+            progressCanvas.parentElement.appendChild(p);
+        }
+    } else {
+        progressCanvas.style.display = '';
+        const emptyMsg = progressCanvas.parentElement.querySelector('.chart-empty');
+        if (emptyMsg) emptyMsg.remove();
+        const monthLabels = progress.map(p => {
+            const m = p.month || p.week || '';
+            return m.replace(/^\d{4}-/, '') + '月';
+        });
+        renderChart('chartProgress', 'bar', {
+            labels: monthLabels,
+            datasets: [
+                {
+                    type: 'bar',
+                    label: '当月解题',
+                    data: progress.map(p => p.count),
+                    backgroundColor: 'rgba(99,102,241,0.25)',
+                    borderColor: 'rgba(99,102,241,0.6)',
+                    borderWidth: 1,
+                    borderRadius: 4,
+                    yAxisID: 'y',
+                    order: 2,
+                },
+                {
+                    type: 'line',
+                    label: '累计已解',
+                    data: progress.map(p => p.cumulative_solved),
+                    borderColor: '#4f46e5',
+                    backgroundColor: 'rgba(79,70,229,0.08)',
+                    fill: true, tension: 0.35, pointRadius: 3, pointHoverRadius: 6,
+                    borderWidth: 2.5,
+                    yAxisID: 'y1',
+                    order: 1,
+                },
+            ],
+        }, {
+            plugins: {
+                legend: { position: 'top', labels: { boxWidth: 12, padding: 16, font: { size: 12 } } },
+                tooltip: { mode: 'index', intersect: false },
+            },
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                y: {
+                    position: 'left',
+                    title: { display: true, text: '当月解题数', font: { size: 11 }, color: '#6b7280' },
+                    grid: { color: 'rgba(0,0,0,0.04)' },
+                    ticks: { font: { size: 11 } },
+                    beginAtZero: true,
+                },
+                y1: {
+                    position: 'right',
+                    title: { display: true, text: '累计已解', font: { size: 11 }, color: '#6b7280' },
+                    grid: { drawOnChartArea: false },
+                    ticks: { font: { size: 11 } },
+                    beginAtZero: true,
+                },
+                x: {
+                    grid: { display: false },
+                    ticks: { font: { size: 11 } },
+                },
+            },
+        });
+    }
 
-    // Category chart
+    // Category chart (stacked: solved + unsolved)
     renderChart('chartCategory', 'bar', {
         labels: byCategory.map(c => c.name),
-        datasets: [{
-            label: '题目数',
-            data: byCategory.map(c => c.count),
-            backgroundColor: '#818cf8',
-            borderRadius: 4,
-        }],
-    }, { indexAxis: 'y', plugins: { legend: { display: false } } });
+        datasets: [
+            {
+                label: '已解',
+                data: byCategory.map(c => c.solved || 0),
+                backgroundColor: '#34d399',
+                borderRadius: 4,
+            },
+            {
+                label: '未解',
+                data: byCategory.map(c => c.count - (c.solved || 0)),
+                backgroundColor: '#e2e8f0',
+                borderRadius: 4,
+            },
+        ],
+    }, {
+        indexAxis: 'y',
+        plugins: { legend: { position: 'top', labels: { boxWidth: 12, padding: 16, font: { size: 12 } } } },
+        scales: { x: { stacked: true }, y: { stacked: true } },
+    });
 
     // Recent table
     const tbody = document.querySelector('#recentTable tbody');
@@ -1378,6 +1648,80 @@ async function loadDashboard() {
     `).join('') || '<tr><td colspan="5" class="empty">暂无数据</td></tr>';
 }
 
+function renderUserProfile(overview, byCategory, checkin) {
+    const card = document.getElementById('profileCard');
+    card.style.display = 'block';
+
+    const solved = overview.by_status['已解'] || 0;
+
+    if (checkin) {
+        document.getElementById('profStreak').textContent = checkin.streak;
+        document.getElementById('profLongStreak').textContent = checkin.longest_streak;
+        document.getElementById('profCheckins').textContent = checkin.total_checkins;
+        document.getElementById('profileStreak').textContent = checkin.checked_in_today ? '✅ 今日已签到' : '';
+    }
+    document.getElementById('profSolved').textContent = solved;
+
+    // Difficulty breakdown with solve rates
+    const diffOrder = ['EASY', 'MEDIUM', 'HARD'];
+    const diffLabels = { EASY: '简单', MEDIUM: '中等', HARD: '困难' };
+    const diffColors = { EASY: '#34d399', MEDIUM: '#fbbf24', HARD: '#f87171' };
+    const diffGradients = { EASY: 'linear-gradient(90deg,#34d399,#6ee7b7)', MEDIUM: 'linear-gradient(90deg,#fbbf24,#fcd34d)', HARD: 'linear-gradient(90deg,#f87171,#fca5a5)' };
+    const maxTotal = Math.max(1, ...diffOrder.map(d => (overview.by_difficulty[d] || {}).total || 0));
+
+    let diffHtml = '<div class="profile-section-title">难度分布及解决率</div>';
+    for (const d of diffOrder) {
+        const info = overview.by_difficulty[d] || {};
+        const total = info.total || 0;
+        const dsolved = info['已解'] || 0;
+        const rate = total > 0 ? Math.round(dsolved / total * 100) : 0;
+        const barW = Math.round(total / maxTotal * 100);
+        const solvedW = total > 0 ? Math.round(dsolved / total * 100) : 0;
+        diffHtml += `<div style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:4px;">
+                <span style="font-weight:600;">${diffLabels[d]}</span>
+                <span style="color:var(--text2);font-size:12px;">${dsolved}/${total} (${rate}%)</span>
+            </div>
+            <div style="height:8px;background:#f1f5f9;border-radius:4px;overflow:hidden;position:relative;">
+                <div style="height:100%;width:${solvedW}%;background:${diffGradients[d]};border-radius:4px;transition:width 0.6s ease;"></div>
+            </div>
+        </div>`;
+    }
+    document.getElementById('profDifficulty').innerHTML = diffHtml;
+
+    // Top & bottom categories (by solved count)
+    const catData = byCategory.map(c => ({ name: c.name, solved: c.solved || 0, count: c.count }));
+    catData.sort((a, b) => b.solved - a.solved);
+    const topCats = catData.filter(c => c.solved > 0).slice(0, 5);
+    const bottomCats = catData.filter(c => c.solved === 0).slice(0, 5);
+
+    let catHtml = '';
+    if (topCats.length) {
+        catHtml += '<div style="font-size:13px;color:var(--text2);margin-bottom:6px;">已解分类 Top</div>';
+        catHtml += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">';
+        catHtml += topCats.map(c => `<span class="profile-tag profile-tag-hot">${c.name} <b>${c.solved}</b></span>`).join('');
+        catHtml += '</div>';
+    }
+    if (bottomCats.length) {
+        catHtml += '<div style="font-size:13px;color:var(--text2);margin-bottom:6px;">待攻克分类</div>';
+        catHtml += '<div style="display:flex;flex-wrap:wrap;gap:6px;">';
+        catHtml += bottomCats.map(c => `<span class="profile-tag profile-tag-cold">${c.name} <b>${c.count}</b></span>`).join('');
+        catHtml += '</div>';
+    }
+    document.getElementById('profCategories').innerHTML = catHtml;
+}
+
+async function resetSolvedAt() {
+    if (!confirm('确定要重置解题趋势吗？\n\n这会清空所有已记录的解题时间，之后新解的题才会出现在趋势图中。')) return;
+    try {
+        const result = await api('POST', '/stats/reset-solved-at');
+        showToast(`已重置 ${result.reset} 条记录`, 'success');
+        loadDashboard();
+    } catch (e) {
+        showToast('重置失败: ' + e.message, 'error');
+    }
+}
+
 function renderChart(canvasId, type, data, extraOpts = {}) {
     if (charts[canvasId]) charts[canvasId].destroy();
     charts[canvasId] = new Chart(document.getElementById(canvasId), {
@@ -1388,28 +1732,13 @@ function renderChart(canvasId, type, data, extraOpts = {}) {
 
 function renderHeatmap(data) {
     const year = data.year;
-    const activity = data.activity;
+    const dates = new Set(data.dates || []);
     document.getElementById('heatmapYear').textContent = year;
 
     const container = document.getElementById('heatmapContainer');
-    const cellSize = 14;
+    const cellSize = 13;
     const gap = 3;
-
-    // Build grid: 7 rows (Sun-Sat) x ~53 weeks
-    const startDate = new Date(year, 0, 1);
-    const endDate = new Date(year, 11, 31);
-    const startDay = startDate.getDay(); // 0=Sun
-
-    // Calculate max activity for color scaling
-    const maxActivity = Math.max(1, ...Object.values(activity));
-
-    function getColor(count) {
-        if (count === 0) return '#ebedf0';
-        if (count <= maxActivity * 0.25) return '#9be9a8';
-        if (count <= maxActivity * 0.5) return '#40c463';
-        if (count <= maxActivity * 0.75) return '#30a14e';
-        return '#216e39';
-    }
+    const step = cellSize + gap;
 
     function formatDate(d) {
         return d.getFullYear() + '-' +
@@ -1417,57 +1746,94 @@ function renderHeatmap(data) {
             String(d.getDate()).padStart(2, '0');
     }
 
-    let html = '<div style="display:inline-flex;gap:2px;">';
+    const startDate = new Date(year, 0, 1);
+    const startDay = startDate.getDay(); // 0=Sun
+    const today = new Date();
+    const todayStr = formatDate(today);
 
-    // Month labels
-    html += '<div style="display:flex;flex-direction:column;justify-content:flex-start;">';
-    html += '<div style="height:20px;font-size:11px;color:var(--text2);"></div>';
-    const months = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+    // Calculate first week of each month for month labels
+    const monthPositions = [];
     for (let m = 0; m < 12; m++) {
-        html += `<div style="font-size:11px;color:var(--text2);height:${cellSize + gap}px;line-height:${cellSize}px;">${months[m]}</div>`;
+        const d = new Date(year, m, 1);
+        const dayOfYear = Math.floor((d - startDate) / 86400000);
+        const weekNum = Math.floor((dayOfYear + startDay) / 7);
+        if (!monthPositions.length || monthPositions[monthPositions.length - 1].week !== weekNum) {
+            monthPositions.push({ week: weekNum, label: (m + 1) + '月' });
+        }
+    }
+
+    // Count stats for summary
+    const totalDays = dates.size;
+    const now = new Date(year, 0, 1);
+    const endOfYear = new Date(year, 11, 31);
+    const elapsed = today < endOfYear ? today : endOfYear;
+    const daysPassed = Math.max(1, Math.floor((elapsed - now) / 86400000) + 1);
+    const rate = Math.round(totalDays / daysPassed * 100);
+
+    // Build summary bar
+    let html = '<div style="display:flex;align-items:center;gap:20px;margin-bottom:14px;font-size:13px;">';
+    html += `<span style="color:var(--text2);">总计签到 <b style="color:var(--text);font-size:15px;">${totalDays}</b> 天</span>`;
+    html += `<span style="color:var(--text2);">签到率 <b style="color:var(--success);font-size:15px;">${rate}%</b></span>`;
+    html += '</div>';
+
+    // Grid wrapper
+    html += '<div style="display:flex;">';
+
+    // Day labels (left) - Mon/Wed/Fri aligned to grid rows 1/3/5
+    const dayLabels = ['日', '', '二', '', '四', '', '六'];
+    html += '<div style="display:flex;flex-direction:column;margin-right:8px;padding-top:0;">';
+    for (let i = 0; i < 7; i++) {
+        html += `<div style="width:16px;height:${cellSize}px;margin-bottom:${gap}px;font-size:11px;color:var(--text2);line-height:${cellSize}px;text-align:right;">${dayLabels[i]}</div>`;
     }
     html += '</div>';
 
-    // Weeks
-    html += '<div>';
-    html += '<div style="display:flex;gap:2px;margin-bottom:4px;">';
-    for (let w = 0; w < 53; w++) {
-        html += `<div style="width:${cellSize}px;text-align:center;font-size:10px;color:var(--text2);">${w % 4 === 0 ? 'W' + w : ''}</div>`;
+    // Grid
+    html += '<div style="position:relative;overflow-x:auto;">';
+    // Month labels (top) - use margin-left to position at correct week
+    html += '<div style="display:flex;height:18px;margin-bottom:4px;">';
+    let prevWeek = 0;
+    for (const mp of monthPositions) {
+        const skip = mp.week - prevWeek;
+        if (skip > 0) html += `<div style="width:${skip * step}px;flex-shrink:0;"></div>`;
+        html += `<span style="font-size:11px;color:var(--text2);white-space:nowrap;font-weight:600;">${mp.label}</span>`;
+        prevWeek = mp.week + 1;
     }
     html += '</div>';
 
-    // Days grid
+    // Day cells
     let current = new Date(startDate);
-    current.setDate(current.getDate() - startDay); // Start from Sunday
+    current.setDate(current.getDate() - startDay);
+
+    const emptyColor = '#f1f5f9';
+    const checkedColor = '#22c55e';
 
     for (let day = 0; day < 7; day++) {
-        html += '<div style="display:flex;gap:2px;">';
+        html += '<div style="display:flex;gap:3px;">';
         for (let week = 0; week < 53; week++) {
             const d = new Date(current);
             d.setDate(d.getDate() + week * 7 + day);
             if (d.getFullYear() === year) {
                 const dateStr = formatDate(d);
-                const count = activity[dateStr] || 0;
-                const color = getColor(count);
-                html += `<div style="width:${cellSize}px;height:${cellSize}px;background:${color};border-radius:2px;cursor:pointer;" title="${dateStr}: ${count} 活动"></div>`;
+                const checked = dates.has(dateStr);
+                const isToday = dateStr === todayStr;
+                const bg = checked ? checkedColor : emptyColor;
+                const todayStyle = isToday ? 'box-shadow:inset 0 0 0 2px var(--primary);' : '';
+                html += `<div class="heatmap-cell${checked ? ' heatmap-checked' : ''}" style="width:${cellSize}px;height:${cellSize}px;background:${bg};border-radius:3px;${todayStyle}" title="${dateStr}${checked ? ' · 已签到' : ''}${isToday ? ' · 今天' : ''}"></div>`;
             } else {
                 html += `<div style="width:${cellSize}px;height:${cellSize}px;"></div>`;
             }
         }
         html += '</div>';
     }
-
     html += '</div></div>';
 
-    // Legend
-    html += '<div style="display:flex;align-items:center;gap:4px;margin-top:8px;font-size:11px;color:var(--text2);">';
-    html += '<span>少</span>';
-    html += '<div style="width:12px;height:12px;background:#ebedf0;border-radius:2px;"></div>';
-    html += '<div style="width:12px;height:12px;background:#9be9a8;border-radius:2px;"></div>';
-    html += '<div style="width:12px;height:12px;background:#40c463;border-radius:2px;"></div>';
-    html += '<div style="width:12px;height:12px;background:#30a14e;border-radius:2px;"></div>';
-    html += '<div style="width:12px;height:12px;background:#216e39;border-radius:2px;"></div>';
-    html += '<span>多</span>';
+    // Legend: simple checked/unchecked
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;">';
+    html += '<div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text2);">';
+    html += `<div style="width:12px;height:12px;background:${emptyColor};border-radius:2px;"></div><span>未签到</span>`;
+    html += `<div style="width:12px;height:12px;background:${checkedColor};border-radius:2px;"></div><span>已签到</span>`;
+    html += '</div>';
+    html += `<div style="font-size:11px;color:var(--text2);">📅 ${year}</div>`;
     html += '</div>';
 
     container.innerHTML = html;
@@ -2643,6 +3009,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadProblems();
     loadDashboard();
     checkLeetCodeStatus();
+    doCheckin();
+    // 每 5 分钟自动同步 LeetCode 进度
+    setInterval(() => autoSyncLcProgress(5 * 60 * 1000), 5 * 60 * 1000);
 });
 </script>
 </body>

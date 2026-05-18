@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -57,6 +58,8 @@ def batch_update_status(data: BatchStatusUpdate, db: Session = Depends(get_db)):
     problems = db.query(Problem).filter(Problem.id.in_(data.ids)).all()
     for p in problems:
         p.status = data.status
+        if data.status == "已解" and not p.solved_at:
+            p.solved_at = datetime.now(timezone.utc)
     db.commit()
     return {"updated": len(problems)}
 

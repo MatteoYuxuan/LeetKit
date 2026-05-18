@@ -1,6 +1,6 @@
 import re
 from datetime import datetime, timezone, timedelta
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, case
 from sqlalchemy.orm import Session, joinedload
 from models import Problem, Category, Tag, Note, ReviewRecord, ReviewSchedule, problem_tags, note_tags, problem_categories, note_categories
 import schemas
@@ -273,6 +273,8 @@ def create_problem(db: Session, data: schemas.ProblemCreate) -> Problem:
     if "leetcode_number_sort" not in problem_data or not problem_data["leetcode_number_sort"]:
         problem_data["leetcode_number_sort"] = compute_sort_key(problem_data["leetcode_number"])
     problem = Problem(**problem_data)
+    if problem.status == "已解" and not problem.solved_at:
+        problem.solved_at = datetime.now(timezone.utc)
     if tag_ids:
         tags = db.query(Tag).filter(Tag.id.in_(tag_ids)).all()
         problem.tags = tags
@@ -300,6 +302,8 @@ def update_problem(db: Session, problem_id: int, data: schemas.ProblemUpdate) ->
     if category_ids is not None:
         cats = db.query(Category).filter(Category.id.in_(category_ids)).all()
         problem.categories = cats
+    if problem.status == "已解" and not problem.solved_at:
+        problem.solved_at = datetime.now(timezone.utc)
     problem.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(problem)
@@ -429,13 +433,18 @@ def get_stats_overview(db: Session) -> dict:
 
 def get_stats_by_category(db: Session) -> list[dict]:
     stmt = (
-        select(Category.name, func.count(problem_categories.c.problem_id).label("count"))
+        select(
+            Category.name,
+            func.count(problem_categories.c.problem_id).label("count"),
+            func.sum(case((Problem.status == "已解", 1), else_=0)).label("solved"),
+        )
         .outerjoin(problem_categories, problem_categories.c.category_id == Category.id)
+        .outerjoin(Problem, Problem.id == problem_categories.c.problem_id)
         .group_by(Category.id)
         .order_by(func.count(problem_categories.c.problem_id).desc())
     )
     rows = db.execute(stmt).all()
-    return [{"name": row[0], "count": row[1]} for row in rows if row[1] > 0]
+    return [{"name": row[0], "count": row[1], "solved": int(row[2] or 0)} for row in rows if row[1] > 0]
 
 
 def get_stats_by_difficulty(db: Session) -> list[dict]:
@@ -455,19 +464,19 @@ def get_stats_by_difficulty(db: Session) -> list[dict]:
 def get_stats_progress(db: Session) -> list[dict]:
     stmt = (
         select(
-            func.strftime("%Y-W%W", Problem.updated_at).label("week"),
+            func.strftime("%Y-%m", Problem.solved_at).label("month"),
             func.count(Problem.id).label("count"),
         )
-        .where(Problem.status == "已解")
-        .group_by("week")
-        .order_by("week")
+        .where(Problem.status == "已解", Problem.solved_at.is_not(None))
+        .group_by("month")
+        .order_by("month")
     )
     rows = db.execute(stmt).all()
     cumulative = 0
     result = []
-    for week, count in rows:
+    for month, count in rows:
         cumulative += count
-        result.append({"week": week, "cumulative_solved": cumulative})
+        result.append({"month": month, "count": count, "cumulative_solved": cumulative})
     return result
 
 
@@ -481,39 +490,20 @@ def get_stats_recent(db: Session, limit: int = 10) -> list[Problem]:
     return db.execute(stmt).unique().scalars().all()
 
 
+def reset_solved_at(db: Session) -> dict:
+    """清空所有题目的 solved_at，重置解题趋势"""
+    count = db.query(Problem).filter(Problem.solved_at.is_not(None)).update({Problem.solved_at: None})
+    db.commit()
+    return {"reset": count}
+
+
 def get_stats_heatmap(db: Session, year: int = None) -> dict:
-    """获取热力图数据：每天的活动数量"""
-    from datetime import datetime, timedelta
+    """获取热力图数据：签到日期集合"""
+    from datetime import datetime
     if year is None:
         year = datetime.now().year
-
-    # 获取问题创建/更新活动
-    stmt = (
-        select(
-            func.date(Problem.updated_at).label("date"),
-            func.count(Problem.id).label("count"),
-        )
-        .where(func.strftime("%Y", Problem.updated_at) == str(year))
-        .group_by("date")
-    )
-    rows = db.execute(stmt).all()
-    activity = {str(row[0]): row[1] for row in rows}
-
-    # 获取复习活动
-    from models import ReviewRecord
-    stmt2 = (
-        select(
-            func.date(ReviewRecord.created_at).label("date"),
-            func.count(ReviewRecord.id).label("count"),
-        )
-        .where(func.strftime("%Y", ReviewRecord.created_at) == str(year))
-        .group_by("date")
-    )
-    rows2 = db.execute(stmt2).all()
-    for date, count in rows2:
-        activity[str(date)] = activity.get(str(date), 0) + count
-
-    return {"year": year, "activity": activity}
+    dates = get_checkin_dates(db, year)
+    return {"year": year, "dates": dates}
 
 
 # --- Review (艾宾浩斯遗忘曲线) ---
@@ -656,6 +646,7 @@ def submit_review(db: Session, problem_id: int, rating: int, time_spent: int | N
     # 更新题目状态
     if rating >= 2 and problem.status == "需复盘":
         problem.status = "已解"
+        problem.solved_at = now
     elif rating == 0:
         problem.status = "需复盘"
 
@@ -754,3 +745,100 @@ def get_review_timeline(db: Session) -> list[dict]:
             "is_overdue": s.next_review_at <= now,
         })
     return result
+
+
+# --- Daily Check-in ---
+
+def checkin_today(db: Session) -> dict:
+    """记录今天签到，返回签到统计"""
+    from models import DailyCheckin
+    now = datetime.now()  # 本地时间
+    today_str = now.strftime("%Y-%m-%d")
+
+    existing = db.query(DailyCheckin).filter(DailyCheckin.date == today_str).first()
+    is_first = not existing
+
+    if is_first:
+        db.add(DailyCheckin(date=today_str))
+        db.commit()
+
+    # Calculate streak
+    all_dates = sorted(
+        [row[0] for row in db.execute(
+            select(DailyCheckin.date).order_by(DailyCheckin.date.desc())
+        ).all()]
+    )
+
+    streak = _calc_streak(all_dates, today_str)
+    longest = _calc_longest_streak(all_dates)
+    total = len(all_dates)
+
+    return {
+        "is_first_today": is_first,
+        "streak": streak,
+        "longest_streak": longest,
+        "total_checkins": total,
+    }
+
+
+def get_checkin_stats(db: Session) -> dict:
+    """获取签到统计"""
+    from models import DailyCheckin
+    now = datetime.now()  # 本地时间
+    today_str = now.strftime("%Y-%m-%d")
+
+    existing = db.query(DailyCheckin).filter(DailyCheckin.date == today_str).first()
+    all_dates = sorted(
+        [row[0] for row in db.execute(
+            select(DailyCheckin.date).order_by(DailyCheckin.date.desc())
+        ).all()]
+    )
+
+    return {
+        "checked_in_today": existing is not None,
+        "streak": _calc_streak(all_dates, today_str),
+        "longest_streak": _calc_longest_streak(all_dates),
+        "total_checkins": len(all_dates),
+    }
+
+
+def _calc_streak(dates_desc: list[str], today_str: str) -> int:
+    """计算从今天往回数的连续签到天数"""
+    from datetime import timedelta
+    now = _now()
+    dates_set = set(dates_desc)
+    streak = 0
+    d = now
+    while d.strftime("%Y-%m-%d") in dates_set:
+        streak += 1
+        d = d - timedelta(days=1)
+    return streak
+
+
+def _calc_longest_streak(dates: list[str]) -> int:
+    """计算历史最长连续签到天数"""
+    from datetime import datetime, timedelta
+    if not dates:
+        return 0
+    parsed = sorted(datetime.strptime(d, "%Y-%m-%d") for d in dates)
+    longest = 1
+    current = 1
+    for i in range(1, len(parsed)):
+        if (parsed[i] - parsed[i-1]).days == 1:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 1
+    return max(longest, current)
+
+
+def get_checkin_dates(db: Session, year: int) -> list[str]:
+    """获取指定年份所有签到日期"""
+    from models import DailyCheckin
+    rows = db.execute(
+        select(DailyCheckin.date).where(
+            DailyCheckin.date >= f"{year}-01-01",
+            DailyCheckin.date <= f"{year}-12-31",
+        )
+    ).all()
+    return [row[0] for row in rows]

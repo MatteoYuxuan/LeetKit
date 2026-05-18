@@ -75,6 +75,7 @@ class Problem(Base):
     topic_tags: Mapped[str | None] = mapped_column(Text, nullable=True)
     ac_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    solved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -161,6 +162,14 @@ class ReviewSchedule(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
     problem: Mapped["Problem"] = relationship("Problem")
+
+
+class DailyCheckin(Base):
+    __tablename__ = "daily_checkins"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    date: Mapped[str] = mapped_column(String(10), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
 class ProblemResource(Base):
