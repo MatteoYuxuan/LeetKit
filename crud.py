@@ -50,6 +50,7 @@ def sync_problem_categories(db: Session, problem: Problem, topic_tag_names: list
             if not cat:
                 cat = Category(name=cat_name)
                 db.add(cat)
+                db.flush()  # 确保后续查询能查到新分类，避免重复插入
             if cat not in problem.categories:
                 problem.categories.append(cat)
 
@@ -531,7 +532,7 @@ def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def get_next_review(db: Session, daily_limit: int = 10) -> Problem | None:
+def get_next_review(db: Session, daily_limit: int = 10, exclude_id: int | None = None) -> Problem | None:
     now = _now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -542,48 +543,49 @@ def get_next_review(db: Session, daily_limit: int = 10) -> Problem | None:
     if completed_today >= daily_limit:
         return None
 
-    # 优先级 1: 需复盘状态的题目
-    review_problems = (
+    # 优先级 1: 需复盘状态的题目（按 updated_at, id 排序保证确定性）
+    review_query = (
         select(Problem)
         .options(joinedload(Problem.categories), joinedload(Problem.tags))
         .where(Problem.status == "需复盘")
-        .order_by(Problem.updated_at.asc())
+        .order_by(Problem.updated_at.asc(), Problem.id.asc())
     )
-    result = db.execute(review_problems).unique().scalars().first()
+    if exclude_id is not None:
+        review_query = review_query.where(Problem.id != exclude_id)
+    result = db.execute(review_query).unique().scalars().first()
     if result:
         return result
 
     # 优先级 2: 艾宾浩斯计划中到期的题目
-    overdue_schedule = (
+    overdue_query = (
         select(ReviewSchedule)
         .options(joinedload(ReviewSchedule.problem))
         .where(
             ReviewSchedule.is_completed == 0,
             ReviewSchedule.next_review_at <= now,
         )
-        .order_by(ReviewSchedule.next_review_at.asc())
-        .limit(1)
+        .order_by(ReviewSchedule.next_review_at.asc(), ReviewSchedule.id.asc())
     )
-    schedule = db.execute(overdue_schedule).scalars().first()
+    if exclude_id is not None:
+        overdue_query = overdue_query.where(ReviewSchedule.problem_id != exclude_id)
+    schedule = db.execute(overdue_query).scalars().first()
     if schedule and schedule.problem:
         problem = schedule.problem
-        # 加载关系
         db.refresh(problem)
         return problem
 
     # 优先级 3: 已解但从未加入复习计划的题目
     scheduled_ids = select(ReviewSchedule.problem_id).where(ReviewSchedule.is_completed == 0)
-    never_scheduled = (
+    never_query = (
         select(Problem)
         .options(joinedload(Problem.categories), joinedload(Problem.tags))
         .where(Problem.status == "已解", ~Problem.id.in_(scheduled_ids))
-        .order_by(Problem.updated_at.asc())
-        .limit(1)
+        .order_by(Problem.updated_at.asc(), Problem.id.asc())
     )
-    result = db.execute(never_scheduled).unique().scalars().first()
+    if exclude_id is not None:
+        never_query = never_query.where(Problem.id != exclude_id)
+    result = db.execute(never_query).unique().scalars().first()
     if result:
-        # 自动创建艾宾浩斯复习计划
-        create_review_schedule(db, result.id)
         return result
 
     return None

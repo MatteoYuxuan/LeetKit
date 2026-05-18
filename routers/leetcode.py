@@ -113,7 +113,6 @@ async def import_all_problems(include_paid: bool = False, db: Session = Depends(
         client = LeetCodeClient()
         all_problems = await client.fetch_all_problems_with_tags(include_paid=include_paid)
 
-        difficulty_map = {"Easy": "EASY", "Medium": "MEDIUM", "Hard": "HARD"}
         imported = 0
         updated = 0
         skipped = 0
@@ -151,8 +150,9 @@ async def import_all_problems(include_paid: bool = False, db: Session = Depends(
                 skipped += 1
                 continue
 
-            difficulty = item.get("difficulty", "Medium")
-            difficulty_upper = difficulty_map.get(difficulty, "MEDIUM")
+            difficulty = item.get("difficulty", "MEDIUM").upper()
+            if difficulty not in ("EASY", "MEDIUM", "HARD"):
+                difficulty = "MEDIUM"
 
             problem = Problem(
                 leetcode_number=frontend_id,
@@ -160,7 +160,7 @@ async def import_all_problems(include_paid: bool = False, db: Session = Depends(
                 title=item.get("title", ""),
                 title_cn=item.get("titleCn", ""),
                 leetcode_slug=item.get("titleSlug", ""),
-                difficulty=difficulty_upper,
+                difficulty=difficulty,
                 status="未做",
                 ac_rate=item.get("acRate"),
                 last_synced_at=datetime.now(timezone.utc),
@@ -222,9 +222,9 @@ def import_problems(data: ImportRequest, db: Session = Depends(get_db)):
         topic_tags = item.get("topicTags", [])
         tag_names = [t.get("name", "") for t in topic_tags]
 
-        difficulty_map = {"Easy": "EASY", "Medium": "MEDIUM", "Hard": "HARD", "easy": "EASY", "medium": "MEDIUM", "hard": "HARD"}
-        difficulty = item.get("difficulty", "Medium")
-        difficulty_cn = difficulty_map.get(difficulty, difficulty)
+        difficulty = item.get("difficulty", "MEDIUM").upper()
+        if difficulty not in ("EASY", "MEDIUM", "HARD"):
+            difficulty = "MEDIUM"
 
         problem = Problem(
             leetcode_number=qid,
@@ -232,7 +232,7 @@ def import_problems(data: ImportRequest, db: Session = Depends(get_db)):
             title=item.get("title", ""),
             title_cn=item.get("titleCn", ""),
             leetcode_slug=item.get("titleSlug", ""),
-            difficulty=difficulty_cn,
+            difficulty=difficulty,
             status="未做",
             topic_tags=str(tag_names) if tag_names else None,
             ac_rate=item.get("acRate"),

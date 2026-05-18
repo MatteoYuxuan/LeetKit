@@ -60,6 +60,13 @@ query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $fi
             title
             titleCn
             titleSlug
+            difficulty
+            acRate
+            paidOnly
+            topicTags {
+                name
+                slug
+            }
         }
     }
 }

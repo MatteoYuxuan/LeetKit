@@ -232,13 +232,14 @@ class LeetCodeClient:
                         "slug": tag.get("slug", ""),
                     })
 
+                ac_rate = q.get("acRate", 0) or 0
                 all_problems.append({
                     "frontendQuestionId": q.get("frontendQuestionId", ""),
                     "title": q.get("title", ""),
                     "titleCn": q.get("titleCn", ""),
                     "titleSlug": q.get("titleSlug", ""),
                     "difficulty": q.get("difficulty", "Medium"),
-                    "acRate": q.get("acRate", 0),
+                    "acRate": round(ac_rate * 100, 1),  # GraphQL 返回小数，转百分比
                     "paidOnly": q.get("paidOnly", False),
                     "topicTags": topic_tags,
                 })

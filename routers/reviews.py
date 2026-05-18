@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import SessionLocal
-from models import Problem, ReviewRecord
+from models import Problem, ReviewRecord, ReviewSchedule
 import crud
 import schemas
 
@@ -17,13 +17,27 @@ def get_db():
 
 
 @router.get("/reviews/next")
-def get_next_review(db: Session = Depends(get_db)):
-    problem = crud.get_next_review(db)
+def get_next_review(exclude_id: int | None = None, db: Session = Depends(get_db)):
+    problem = crud.get_next_review(db, exclude_id=exclude_id)
     if not problem:
         return None
     review_count = db.query(ReviewRecord).filter(ReviewRecord.problem_id == problem.id).count()
     last_review = db.query(ReviewRecord).filter(ReviewRecord.problem_id == problem.id).order_by(ReviewRecord.created_at.desc()).first()
     last_rating = last_review.rating if last_review else None
+
+    # 获取艾宾浩斯复习计划阶段信息
+    schedule = db.query(ReviewSchedule).filter(
+        ReviewSchedule.problem_id == problem.id,
+        ReviewSchedule.is_completed == 0,
+    ).first()
+    schedule_info = None
+    if schedule:
+        schedule_info = {
+            "stage": schedule.stage,
+            "total_stages": len(crud.EBBINGHAUS_INTERVALS),
+            "next_review_at": schedule.next_review_at.isoformat() if schedule.next_review_at else None,
+        }
+
     return {
         "problem": {
             "id": problem.id,
@@ -37,11 +51,13 @@ def get_next_review(db: Session = Depends(get_db)):
             "time_complexity": problem.time_complexity,
             "space_complexity": problem.space_complexity,
             "ac_rate": problem.ac_rate,
+            "solution_url": problem.solution_url,
             "categories": [{"id": c.id, "name": c.name, "color": c.color} for c in problem.categories],
             "tags": [{"id": t.id, "name": t.name, "color": t.color} for t in problem.tags],
         },
         "review_count": review_count,
         "last_rating": last_rating,
+        "schedule": schedule_info,
     }
 
 

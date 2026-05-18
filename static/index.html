@@ -152,27 +152,42 @@ tr:hover td { background: #f9fafb; }
 
 /* Modal */
 .modal-overlay {
-    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3);
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
     z-index: 200; align-items: center; justify-content: center;
 }
-.modal-overlay.show { display: flex; }
-.modal {
-    background: var(--card); border-radius: 12px; padding: 24px;
-    width: 560px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+.modal-overlay.show {
+    display: flex;
+    animation: fadeIn 0.2s ease;
 }
-.modal h2 { font-size: 18px; margin-bottom: 16px; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.modal {
+    background: var(--card); border-radius: 16px; padding: 28px;
+    width: 560px; max-height: 90vh; overflow-y: auto;
+    box-shadow: 0 25px 80px rgba(0,0,0,0.18);
+    animation: slideUp 0.25s ease;
+}
+.modal.sm { width: 400px; padding: 24px; }
+.modal h2 { font-size: 18px; font-weight: 700; margin-bottom: 20px; color: var(--text); }
+.modal h2 .icon { margin-right: 8px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 
 /* Toast */
 .toast {
-    position: fixed; top: 20px; right: 20px; padding: 12px 20px;
-    border-radius: 8px; color: #fff; font-size: 14px; z-index: 300;
-    transform: translateX(120%); transition: transform 0.3s;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    position: fixed; top: 24px; right: 24px; padding: 14px 20px;
+    border-radius: 12px; color: #fff; font-size: 14px; z-index: 300;
+    transform: translateX(calc(100% + 32px)); transition: transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+    display: flex; align-items: center; gap: 10px;
+    max-width: 380px; backdrop-filter: blur(8px);
 }
 .toast.show { transform: translateX(0); }
-.toast-success { background: var(--success); }
-.toast-error { background: var(--danger); }
+.toast-success { background: linear-gradient(135deg, #10b981, #059669); }
+.toast-error { background: linear-gradient(135deg, #ef4444, #dc2626); }
+.toast-info { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+.toast-icon { font-size: 18px; flex-shrink: 0; }
 
 /* Category/Tag list */
 .list-item {
@@ -451,6 +466,7 @@ tr:hover td { background: #f9fafb; }
                 <button class="btn" onclick="showReviewAnswer()" style="padding:10px 32px;font-size:14px;">显示答案</button>
                 <button class="btn" id="reviewLeetCodeBtn" onclick="openReviewLeetCode()" style="padding:10px 24px;font-size:14px;background:#ffa116;color:#fff;border-color:#ffa116;">去做题 ↗</button>
                 <button class="btn" onclick="skipReview()" style="padding:10px 24px;font-size:14px;">已掌握，跳过</button>
+                <button class="btn" onclick="nextReviewProblem()" style="padding:10px 24px;font-size:14px;background:var(--bg);color:var(--text2);border-color:var(--border);">换一题 →</button>
             </div>
             <div id="reviewResources" style="display:none;margin-bottom:16px;">
                 <div style="font-size:13px;color:var(--text2);margin-bottom:6px;">关联资源</div>
@@ -463,6 +479,9 @@ tr:hover td { background: #f9fafb; }
                     <button class="btn" onclick="submitReview(1)" style="flex:1;padding:12px;background:#fef3c7;color:#92400e;border-color:#fde68a;font-weight:600;">比较模糊</button>
                     <button class="btn" onclick="submitReview(2)" style="flex:1;padding:12px;background:#dbeafe;color:#1e40af;border-color:#bfdbfe;font-weight:600;">基本记得</button>
                     <button class="btn" onclick="submitReview(3)" style="flex:1;padding:12px;background:#d1fae5;color:#065f46;border-color:#a7f3d0;font-weight:600;">非常熟练</button>
+                </div>
+                <div style="text-align:center;margin-top:12px;">
+                    <button class="btn" onclick="nextReviewProblem()" style="padding:8px 24px;font-size:13px;background:var(--bg);color:var(--text2);border-color:var(--border);">换一题 →</button>
                 </div>
             </div>
         </div>
@@ -666,6 +685,44 @@ tr:hover td { background: #f9fafb; }
 </div>
 </div>
 
+<!-- Add Link Modal -->
+<div class="modal-overlay" id="addLinkModal">
+<div class="modal sm">
+    <h2><span class="icon">🔗</span>添加链接</h2>
+    <div class="form-group"><label>链接名称 *</label><input type="text" id="linkName" placeholder="如：官方题解" required></div>
+    <div class="form-group"><label>链接 URL *</label><input type="url" id="linkUrl" placeholder="https://..." required></div>
+    <div class="modal-actions">
+        <button class="btn" onclick="closeModal('addLinkModal')">取消</button>
+        <button class="btn btn-primary" onclick="submitAddLink()">添加</button>
+    </div>
+</div>
+</div>
+
+<!-- Create List Modal -->
+<div class="modal-overlay" id="createListModal">
+<div class="modal sm">
+    <h2><span class="icon">📋</span>创建题单</h2>
+    <div class="form-group"><label>题单名称 *</label><input type="text" id="listName" placeholder="如：动态规划专题" required></div>
+    <div class="form-group"><label>描述（可选）</label><textarea id="listDesc" rows="3" placeholder="简要描述这个题单..."></textarea></div>
+    <div class="modal-actions">
+        <button class="btn" onclick="closeModal('createListModal')">取消</button>
+        <button class="btn btn-primary" onclick="submitCreateList()">创建</button>
+    </div>
+</div>
+</div>
+
+<!-- Add to List Modal -->
+<div class="modal-overlay" id="addToListModal">
+<div class="modal sm">
+    <h2><span class="icon">➕</span>添加题目到题单</h2>
+    <div class="form-group"><label>题目 ID *</label><input type="number" id="addToListProblemId" placeholder="输入题目 ID" required></div>
+    <div class="modal-actions">
+        <button class="btn" onclick="closeModal('addToListModal')">取消</button>
+        <button class="btn btn-primary" onclick="submitAddToList()">添加</button>
+    </div>
+</div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
@@ -704,9 +761,11 @@ async function api(method, path, body) {
 // --- Toast ---
 function showToast(msg, type = 'success') {
     const el = document.getElementById('toast');
-    el.textContent = msg;
+    const icons = { success: '✓', error: '✕', info: 'ℹ' };
+    el.innerHTML = `<span class="toast-icon">${icons[type] || icons.success}</span>${msg}`;
     el.className = 'toast toast-' + type + ' show';
-    setTimeout(() => el.classList.remove('show'), 3000);
+    clearTimeout(el._timeout);
+    el._timeout = setTimeout(() => el.classList.remove('show'), 3000);
 }
 
 // --- Tab switching ---
@@ -727,7 +786,33 @@ function switchTab(name, e) {
 
 // --- Modal helpers ---
 function closeModal(id) { document.getElementById(id).classList.remove('show'); }
-function openModal(id) { document.getElementById(id).classList.add('show'); }
+function openModal(id) {
+    const overlay = document.getElementById(id);
+    overlay.classList.add('show');
+    // Auto-focus first input
+    const firstInput = overlay.querySelector('input:not([type="hidden"])');
+    if (firstInput) setTimeout(() => firstInput.focus(), 150);
+}
+
+// Click overlay to close, Escape to close
+document.addEventListener('click', e => {
+    if (e.target.classList.contains('modal-overlay') && e.target.classList.contains('show')) {
+        closeModal(e.target.id);
+    }
+});
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay.show').forEach(o => closeModal(o.id));
+    }
+    // Enter in small modals submits the primary button
+    if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+        const modal = e.target.closest('.modal.sm');
+        if (modal) {
+            const btn = modal.querySelector('.btn-primary');
+            if (btn) btn.click();
+        }
+    }
+});
 
 // --- Load reference data ---
 async function loadRefData() {
@@ -1512,6 +1597,18 @@ function renderReviewCard(data) {
     if (data.last_rating !== null) meta.push('上次: ' + RATING_LABELS[data.last_rating]);
     document.getElementById('reviewMeta').textContent = meta.join('  |  ');
 
+    // Render progress bar with Ebbinghaus stage
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    if (data.schedule) {
+        const pct = Math.round((data.schedule.stage / data.schedule.total_stages) * 100);
+        progressBar.style.width = pct + '%';
+        progressText.textContent = `第 ${data.schedule.stage + 1}/${data.schedule.total_stages} 轮`;
+    } else {
+        progressBar.style.width = '0%';
+        progressText.textContent = '新加入';
+    }
+
     // Reset answer area
     document.getElementById('reviewAnswer').style.display = 'none';
     document.getElementById('reviewShowBtn').style.display = 'flex';
@@ -1587,6 +1684,25 @@ async function skipReview() {
         showToast('已标记为非常熟练');
         loadReview();
         loadDashboard();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function nextReviewProblem() {
+    if (!currentReviewProblem) return;
+    const excludeId = currentReviewProblem.id;
+    try {
+        const next = await api('GET', `/reviews/next?exclude_id=${excludeId}`).catch(() => null);
+        if (next && next.problem) {
+            currentReviewProblem = next.problem;
+            renderReviewCard(next);
+        } else {
+            currentReviewProblem = null;
+            document.getElementById('reviewEmpty').style.display = 'block';
+            document.getElementById('reviewContent').style.display = 'none';
+            showToast('没有更多待复习题目了');
+        }
     } catch (e) {
         showToast(e.message, 'error');
     }
@@ -1723,11 +1839,22 @@ async function loadProblemResources(problemId) {
 
 function showAddLinkModal(problemId) {
     currentResourceProblemId = problemId;
-    const name = prompt('链接名称:');
-    if (!name) return;
-    const url = prompt('链接 URL:');
-    if (!url) return;
-    addLinkResource(problemId, name, url);
+    document.getElementById('linkName').value = '';
+    document.getElementById('linkUrl').value = '';
+    openModal('addLinkModal');
+}
+
+async function submitAddLink() {
+    const name = document.getElementById('linkName').value.trim();
+    const url = document.getElementById('linkUrl').value.trim();
+    if (!name) { showToast('请输入链接名称', 'error'); return; }
+    if (!url) { showToast('请输入链接 URL', 'error'); return; }
+    try {
+        await addLinkResource(currentResourceProblemId, name, url);
+        closeModal('addLinkModal');
+    } catch (e) {
+        // 错误已在 addLinkResource 中 toast
+    }
 }
 
 async function addLinkResource(problemId, name, url) {
@@ -1741,6 +1868,7 @@ async function addLinkResource(problemId, name, url) {
         loadProblemResources(problemId);
     } catch (e) {
         showToast(e.message, 'error');
+        throw e;
     }
 }
 
@@ -1928,10 +2056,21 @@ function backToLists() {
 }
 
 function openProblemListModal() {
-    const name = prompt('题单名称:');
-    if (!name) return;
-    const desc = prompt('题单描述（可选）:');
-    createProblemList(name, desc);
+    document.getElementById('listName').value = '';
+    document.getElementById('listDesc').value = '';
+    openModal('createListModal');
+}
+
+async function submitCreateList() {
+    const name = document.getElementById('listName').value.trim();
+    const desc = document.getElementById('listDesc').value.trim();
+    if (!name) { showToast('请输入题单名称', 'error'); return; }
+    try {
+        await createProblemList(name, desc);
+        closeModal('createListModal');
+    } catch (e) {
+        // 错误已在 createProblemList 中 toast
+    }
 }
 
 async function createProblemList(name, description) {
@@ -1941,6 +2080,7 @@ async function createProblemList(name, description) {
         loadProblemLists();
     } catch (e) {
         showToast(e.message, 'error');
+        throw e;
     }
 }
 
@@ -1957,9 +2097,19 @@ async function deleteCurrentList() {
 }
 
 function addProblemToList() {
-    const problemId = prompt('输入题目 ID:');
-    if (!problemId) return;
-    addItemToList(currentListId, parseInt(problemId));
+    document.getElementById('addToListProblemId').value = '';
+    openModal('addToListModal');
+}
+
+async function submitAddToList() {
+    const idStr = document.getElementById('addToListProblemId').value.trim();
+    if (!idStr) { showToast('请输入题目 ID', 'error'); return; }
+    try {
+        await addItemToList(currentListId, parseInt(idStr));
+        closeModal('addToListModal');
+    } catch (e) {
+        // 错误已在 addItemToList 中 toast
+    }
 }
 
 async function addItemToList(listId, problemId) {
@@ -1969,6 +2119,7 @@ async function addItemToList(listId, problemId) {
         openProblemList(listId);
     } catch (e) {
         showToast(e.message, 'error');
+        throw e;
     }
 }
 
