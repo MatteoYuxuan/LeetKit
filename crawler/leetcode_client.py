@@ -29,11 +29,7 @@ class LeetCodeClient:
                 return item.split("=", 1)[1]
         return ""
 
-    async def _graphql(self, query: str, variables: dict = None, retries: int = 3) -> dict:
-        payload = {"query": query}
-        if variables:
-            payload["variables"] = variables
-
+    async def _graphql(self, payload: dict, retries: int = 3) -> dict:
         last_error = None
         for attempt in range(retries):
             try:
@@ -47,6 +43,9 @@ class LeetCodeClient:
                         raise Exception("Cookie 已过期，请重新登录")
                     if resp.status_code == 401:
                         raise Exception("未授权，请检查 Cookie")
+                    if resp.status_code == 400:
+                        text = resp.text[:200] if resp.text else ""
+                        raise Exception(f"请求格式错误: {text}")
                     resp.raise_for_status()
                     data = resp.json()
 
@@ -94,23 +93,21 @@ class LeetCodeClient:
         if tags:
             filters["tags"] = tags
 
-        variables = {
-            "categorySlug": category_slug,
-            "limit": limit,
-            "skip": skip,
-            "filters": filters,
+        payload = {
+            **queries.SEARCH_PROBLEMS,
+            "variables": {
+                "categorySlug": category_slug,
+                "limit": limit,
+                "skip": skip,
+                "filters": filters,
+            }
         }
-        data = await self._graphql(queries.SEARCH_PROBLEMS, variables)
+        data = await self._graphql(payload)
         result = data.get("data", {}).get("problemsetQuestionList", {})
         return {
             "total": result.get("total", 0),
             "questions": result.get("questions", []),
         }
-
-    async def get_user_progress(self) -> dict:
-        """获取用户做题进度"""
-        data = await self._graphql(queries.USER_PROGRESS)
-        return data.get("data", {}).get("userProfileQuestionsSolved", [])
 
     async def get_recent_ac_submissions(self) -> list:
         """获取最近通过的提交"""

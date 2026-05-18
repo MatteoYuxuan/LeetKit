@@ -1,15 +1,21 @@
 # LeetCode GraphQL 查询集中管理
 
-VERIFY_COOKIE = """
+VERIFY_COOKIE = {
+    "operationName": "globalData",
+    "query": """
 query globalData {
     userStatus {
         username
         isSignedIn
     }
 }
-"""
+""",
+    "variables": {}
+}
 
-SEARCH_PROBLEMS = """
+SEARCH_PROBLEMS = {
+    "operationName": "problemsetQuestionList",
+    "query": """
 query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
     problemsetQuestionList: questionList(categorySlug: $categorySlug, limit: $limit, skip: $skip, filters: $filters) {
         total
@@ -28,18 +34,18 @@ query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $fi
         }
     }
 }
-"""
-
-USER_PROGRESS = """
-query userProfileQuestionsSolved {
-    userProfileQuestionsSolved {
-        difficulty
-        count
+""",
+    "variables": {
+        "categorySlug": "",
+        "skip": 0,
+        "limit": 50,
+        "filters": {}
     }
 }
-"""
 
-RECENT_AC_SUBMISSIONS = """
+RECENT_AC_SUBMISSIONS = {
+    "operationName": "recentACSubmissions",
+    "query": """
 query recentACSubmissions {
     recentACSubmissions {
         title
@@ -47,4 +53,6 @@ query recentACSubmissions {
         timestamp
     }
 }
-"""
+""",
+    "variables": {}
+}
