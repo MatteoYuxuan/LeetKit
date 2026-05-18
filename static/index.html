@@ -1396,7 +1396,10 @@ async function loadReview() {
 
 function renderReviewCard(data) {
     const p = data.problem;
-    document.getElementById('reviewNumber').textContent = '#' + p.leetcode_number;
+    const numberHtml = p.leetcode_slug
+        ? `<a href="https://leetcode.cn/problems/${p.leetcode_slug}/" target="_blank" style="color:var(--primary);text-decoration:none;">#${p.leetcode_number} ↗</a>`
+        : '#' + p.leetcode_number;
+    document.getElementById('reviewNumber').innerHTML = numberHtml;
     document.getElementById('reviewTitle').textContent = p.title + (p.title_cn ? '  ' + p.title_cn : '');
     document.getElementById('reviewDifficulty').outerHTML = difficultyBadge(p.difficulty);
     document.getElementById('reviewStatus').outerHTML = statusBadge(p.status);
@@ -1457,7 +1460,7 @@ function renderReviewHistory(items) {
     const tbody = document.querySelector('#reviewHistoryTable tbody');
     tbody.innerHTML = items.map(r => `
         <tr>
-            <td><strong>${r.leetcode_number}</strong></td>
+            <td>${r.leetcode_slug ? `<a href="https://leetcode.cn/problems/${r.leetcode_slug}/" target="_blank" style="color:var(--primary);text-decoration:none;"><strong>${r.leetcode_number}</strong> ↗</a>` : `<strong>${r.leetcode_number}</strong>`}</td>
             <td>${r.title}</td>
             <td><span style="color:${RATING_COLORS[r.rating]};font-weight:600;">${RATING_LABELS[r.rating]}</span></td>
             <td>${r.interval} 天</td>
@@ -1877,7 +1880,7 @@ async function loadReviewTimeline() {
         }
         tbody.innerHTML = timeline.map(item => `
             <tr>
-                <td><strong>${item.leetcode_number || '-'}</strong></td>
+                <td>${item.leetcode_slug ? `<a href="https://leetcode.cn/problems/${item.leetcode_slug}/" target="_blank" style="color:var(--primary);text-decoration:none;"><strong>${item.leetcode_number || '-'}</strong> ↗</a>` : `<strong>${item.leetcode_number || '-'}</strong>`}</td>
                 <td>${item.title || '-'}</td>
                 <td>阶段 ${item.stage + 1}/${item.total_stages}</td>
                 <td>${new Date(item.next_review_at).toLocaleDateString('zh-CN')}</td>
