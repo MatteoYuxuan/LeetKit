@@ -1,7 +1,7 @@
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
-from models import Problem, Category, Tag, Note, ReviewRecord, problem_tags, note_tags, problem_categories, note_categories
+from models import Problem, Category, Tag, Note, ReviewRecord, ReviewSchedule, problem_tags, note_tags, problem_categories, note_categories
 import schemas
 
 
@@ -391,8 +391,12 @@ def get_stats_recent(db: Session, limit: int = 10) -> list[Problem]:
     return db.execute(stmt).unique().scalars().all()
 
 
-# --- Review ---
+# --- Review (艾宾浩斯遗忘曲线) ---
 
+# 艾宾浩斯复习间隔（天）
+EBBINGHAUS_INTERVALS = [1, 2, 4, 7, 15, 30]
+
+# 旧系统兼容
 BASE_INTERVAL = {"EASY": 3, "MEDIUM": 2, "HARD": 1}
 MULTIPLIER = {0: None, 1: 1.2, 2: 2.5, 3: 4.0}
 DIFFICULTY_FACTOR = {"EASY": 1.3, "MEDIUM": 1.0, "HARD": 0.7}
@@ -414,20 +418,10 @@ def get_next_review(db: Session, daily_limit: int = 10) -> Problem | None:
     if completed_today >= daily_limit:
         return None
 
-    # Subquery: latest review per problem
-    latest_review = (
-        select(
-            ReviewRecord.problem_id,
-            func.max(ReviewRecord.id).label("max_id"),
-        )
-        .group_by(ReviewRecord.problem_id)
-        .subquery()
-    )
-
-    # Priority 1: "需复盘" problems (ordered by updated_at)
+    # 优先级 1: 需复盘状态的题目
     review_problems = (
         select(Problem)
-        .options(joinedload(Problem.categories), joinedload(Problem.tags), joinedload(Problem.reviews))
+        .options(joinedload(Problem.categories), joinedload(Problem.tags))
         .where(Problem.status == "需复盘")
         .order_by(Problem.updated_at.asc())
     )
@@ -435,43 +429,54 @@ def get_next_review(db: Session, daily_limit: int = 10) -> Problem | None:
     if result:
         return result
 
-    # Priority 2: overdue reviews — fetch candidates and filter in Python
-    # (SQLite doesn't support datetime arithmetic)
-    reviewed_ids = select(latest_review.c.problem_id)
-    candidates = (
-        db.execute(
-            select(Problem)
-            .options(joinedload(Problem.categories), joinedload(Problem.tags), joinedload(Problem.reviews))
-            .where(Problem.status == "已解", Problem.id.in_(reviewed_ids))
-            .order_by(Problem.updated_at.asc())
+    # 优先级 2: 艾宾浩斯计划中到期的题目
+    overdue_schedule = (
+        select(ReviewSchedule)
+        .options(joinedload(ReviewSchedule.problem))
+        .where(
+            ReviewSchedule.is_completed == 0,
+            ReviewSchedule.next_review_at <= now,
         )
-        .unique()
-        .scalars()
-        .all()
+        .order_by(ReviewSchedule.next_review_at.asc())
+        .limit(1)
     )
-    overdue = []
-    for p in candidates:
-        if p.reviews:
-            latest = max(p.reviews, key=lambda r: r.id)
-            next_at = latest.created_at + timedelta(days=latest.interval)
-            if next_at <= now:
-                overdue.append((next_at, p))
-    if overdue:
-        overdue.sort(key=lambda x: x[0])
-        return overdue[0][1]
+    schedule = db.execute(overdue_schedule).scalars().first()
+    if schedule and schedule.problem:
+        problem = schedule.problem
+        # 加载关系
+        db.refresh(problem)
+        return problem
 
-    # Priority 3: "已解" problems never reviewed
-    never_reviewed = (
+    # 优先级 3: 已解但从未加入复习计划的题目
+    scheduled_ids = select(ReviewSchedule.problem_id).where(ReviewSchedule.is_completed == 0)
+    never_scheduled = (
         select(Problem)
-        .options(joinedload(Problem.categories), joinedload(Problem.tags), joinedload(Problem.reviews))
-        .where(Problem.status == "已解", ~Problem.id.in_(reviewed_ids))
+        .options(joinedload(Problem.categories), joinedload(Problem.tags))
+        .where(Problem.status == "已解", ~Problem.id.in_(scheduled_ids))
         .order_by(Problem.updated_at.asc())
+        .limit(1)
     )
-    result = db.execute(never_reviewed).unique().scalars().first()
+    result = db.execute(never_scheduled).unique().scalars().first()
     if result:
+        # 自动创建艾宾浩斯复习计划
+        create_review_schedule(db, result.id)
         return result
 
     return None
+
+
+def create_review_schedule(db: Session, problem_id: int) -> ReviewSchedule:
+    """为题目创建艾宾浩斯复习计划"""
+    now = _now()
+    schedule = ReviewSchedule(
+        problem_id=problem_id,
+        stage=0,
+        next_review_at=now + timedelta(days=EBBINGHAUS_INTERVALS[0]),
+    )
+    db.add(schedule)
+    db.commit()
+    db.refresh(schedule)
+    return schedule
 
 
 def submit_review(db: Session, problem_id: int, rating: int) -> ReviewRecord:
@@ -479,23 +484,41 @@ def submit_review(db: Session, problem_id: int, rating: int) -> ReviewRecord:
     if not problem:
         raise ValueError("题目不存在")
 
-    # Get the latest review record
-    latest = (
-        db.query(ReviewRecord)
-        .filter(ReviewRecord.problem_id == problem_id)
-        .order_by(ReviewRecord.created_at.desc())
-        .first()
-    )
+    now = _now()
 
-    if rating == 0:
-        new_interval = BASE_INTERVAL.get(problem.difficulty, 2)
+    # 获取或创建艾宾浩斯复习计划
+    schedule = db.query(ReviewSchedule).filter(
+        ReviewSchedule.problem_id == problem_id,
+        ReviewSchedule.is_completed == 0,
+    ).first()
+
+    if not schedule:
+        schedule = create_review_schedule(db, problem_id)
+
+    # 根据评分决定下一个复习阶段
+    if rating >= 2:
+        # 掌握良好，进入下一阶段
+        next_stage = schedule.stage + 1
+        if next_stage >= len(EBBINGHAUS_INTERVALS):
+            # 完成所有复习阶段
+            schedule.is_completed = 1
+            schedule.stage = next_stage
+            new_interval = EBBINGHAUS_INTERVALS[-1]
+        else:
+            schedule.stage = next_stage
+            new_interval = EBBINGHAUS_INTERVALS[next_stage]
+            schedule.next_review_at = now + timedelta(days=new_interval)
+    elif rating == 1:
+        # 模糊，保持当前阶段，缩短间隔
+        new_interval = max(1, EBBINGHAUS_INTERVALS[schedule.stage] // 2)
+        schedule.next_review_at = now + timedelta(days=new_interval)
     else:
-        prev_interval = latest.interval if latest else BASE_INTERVAL.get(problem.difficulty, 2)
-        new_interval = max(1, round(prev_interval * MULTIPLIER[rating]))
+        # 完全不会，重置到第一阶段
+        schedule.stage = 0
+        new_interval = EBBINGHAUS_INTERVALS[0]
+        schedule.next_review_at = now + timedelta(days=new_interval)
 
-    # Apply difficulty factor
-    new_interval = max(1, round(new_interval * DIFFICULTY_FACTOR.get(problem.difficulty, 1.0)))
-
+    # 记录复习历史
     record = ReviewRecord(
         problem_id=problem_id,
         rating=rating,
@@ -503,11 +526,13 @@ def submit_review(db: Session, problem_id: int, rating: int) -> ReviewRecord:
     )
     db.add(record)
 
-    # Auto-update status: if rating >= 2 and status is "需复盘", change to "已解"
+    # 更新题目状态
     if rating >= 2 and problem.status == "需复盘":
         problem.status = "已解"
+    elif rating == 0:
+        problem.status = "需复盘"
 
-    problem.updated_at = _now()
+    problem.updated_at = now
     db.commit()
     db.refresh(record)
     return record
@@ -522,41 +547,28 @@ def get_review_stats(db: Session) -> dict:
     ) or 0
     total_reviews = db.scalar(select(func.count(ReviewRecord.id))) or 0
 
-    # Pending count
+    # 待复习数量
     pending = 0
 
-    # "需复盘" count
+    # 需复盘状态
     pending += db.scalar(select(func.count(Problem.id)).where(Problem.status == "需复盘")) or 0
 
-    # Overdue: "已解" with latest review's next_review_at <= now
-    latest_review = (
-        select(ReviewRecord.problem_id, func.max(ReviewRecord.id).label("max_id"))
-        .group_by(ReviewRecord.problem_id)
-        .subquery()
-    )
-    reviewed_ids = select(latest_review.c.problem_id)
-    # Fetch reviewed "已解" problems and filter overdue in Python
-    reviewed_problems = db.execute(
-        select(Problem.id)
-        .where(Problem.status == "已解", Problem.id.in_(reviewed_ids))
-    ).scalars().all()
-    if reviewed_problems:
-        latest_records = db.execute(
-            select(ReviewRecord)
-            .join(latest_review, ReviewRecord.id == latest_review.c.max_id)
-            .where(ReviewRecord.problem_id.in_(reviewed_problems))
-        ).scalars().all()
-        for r in latest_records:
-            next_at = r.created_at + timedelta(days=r.interval)
-            if next_at <= now:
-                pending += 1
-
-    # Never reviewed "已解"
-    never_reviewed = db.scalar(
-        select(func.count(Problem.id))
-        .where(Problem.status == "已解", ~Problem.id.in_(reviewed_ids))
+    # 艾宾浩斯计划中到期的
+    pending += db.scalar(
+        select(func.count(ReviewSchedule.id)).where(
+            ReviewSchedule.is_completed == 0,
+            ReviewSchedule.next_review_at <= now,
+        )
     ) or 0
-    pending += never_reviewed
+
+    # 已解但未加入计划的
+    scheduled_ids = select(ReviewSchedule.problem_id).where(ReviewSchedule.is_completed == 0)
+    pending += db.scalar(
+        select(func.count(Problem.id)).where(
+            Problem.status == "已解",
+            ~Problem.id.in_(scheduled_ids),
+        )
+    ) or 0
 
     return {"pending": pending, "completed_today": completed_today, "total_reviews": total_reviews}
 
@@ -583,5 +595,30 @@ def get_today_reviews(db: Session) -> list[dict]:
             "rating": r.rating,
             "interval": r.interval,
             "next_review_at": next_at.isoformat(),
+        })
+    return result
+
+
+def get_review_timeline(db: Session) -> list[dict]:
+    """获取艾宾浩斯复习时间线"""
+    now = _now()
+    schedules = (
+        db.query(ReviewSchedule)
+        .options(joinedload(ReviewSchedule.problem))
+        .filter(ReviewSchedule.is_completed == 0)
+        .order_by(ReviewSchedule.next_review_at.asc())
+        .all()
+    )
+    result = []
+    for s in schedules:
+        result.append({
+            "id": s.id,
+            "problem_id": s.problem_id,
+            "leetcode_number": s.problem.leetcode_number if s.problem else None,
+            "title": s.problem.title if s.problem else None,
+            "stage": s.stage,
+            "total_stages": len(EBBINGHAUS_INTERVALS),
+            "next_review_at": s.next_review_at.isoformat(),
+            "is_overdue": s.next_review_at <= now,
         })
     return result

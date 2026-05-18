@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LeetCode Notebook</title>
+<title>LeetKit - LeetCode 工具箱</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
 <style>
@@ -199,6 +199,64 @@ tr:hover td { background: #f9fafb; }
 .clickable-row { cursor: pointer; }
 .clickable-row:hover td { background: #eef2ff !important; }
 
+/* Search panel */
+.search-result-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.search-result-item:hover { background: #f9fafb; }
+.search-result-item:last-child { border-bottom: none; }
+.search-result-type {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--primary-light);
+    color: var(--primary);
+    white-space: nowrap;
+}
+
+/* Batch toolbar */
+.batch-toolbar {
+    display: none;
+    padding: 10px 12px;
+    background: var(--primary-light);
+    border-radius: 6px;
+    margin-bottom: 12px;
+    align-items: center;
+    gap: 10px;
+}
+.batch-toolbar.show { display: flex; }
+.batch-count { font-size: 13px; color: var(--primary); font-weight: 600; }
+
+/* Problem list cards */
+.list-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.list-card:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(79,70,229,0.1); }
+.list-card-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+.list-card-desc { font-size: 13px; color: var(--text2); margin-bottom: 8px; }
+.list-card-meta { font-size: 12px; color: var(--text2); }
+
+/* LeetCode search results */
+.lc-result-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+}
+.lc-result-item:last-child { border-bottom: none; }
+.lc-result-item input[type="checkbox"] { margin-right: 10px; }
+
 /* Sort order button */
 .sort-btn {
     padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
@@ -223,8 +281,15 @@ tr:hover td { background: #f9fafb; }
 <body>
 
 <div class="header">
-    <h1>LeetCode Notebook</h1>
+    <h1>LeetKit</h1>
+    <div style="flex:1; max-width:400px; margin:0 20px; position:relative;">
+        <input type="text" id="globalSearch" placeholder="全局搜索题目、笔记、题单..." style="width:100%;" oninput="debounceGlobalSearch()" onfocus="showSearchPanel()" onblur="setTimeout(()=>hideSearchPanel(),200)">
+        <div id="searchPanel" style="display:none; position:absolute; top:100%; left:0; right:0; background:var(--card); border:1px solid var(--border); border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:200; max-height:400px; overflow-y:auto;">
+            <div id="searchResults"></div>
+        </div>
+    </div>
     <div class="header-actions">
+        <span id="leetcodeStatus" style="font-size:12px; color:var(--text2);"></span>
         <button class="btn" onclick="doImport()">导入</button>
         <button class="btn" onclick="toggleExportMenu(event)">导出 ▾</button>
         <div id="exportMenu" style="display:none; position:absolute; top:48px; right:24px; background:var(--card); border:1px solid var(--border); border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.1); z-index:200;">
@@ -243,6 +308,8 @@ tr:hover td { background: #f9fafb; }
     <button class="tab-btn" onclick="switchTab('tags', event)">标签管理</button>
     <button class="tab-btn" onclick="switchTab('notes', event)">笔记</button>
     <button class="tab-btn" onclick="switchTab('review', event)">复习</button>
+    <button class="tab-btn" onclick="switchTab('lists', event)">题单</button>
+    <button class="tab-btn" onclick="switchTab('leetcode', event)">LeetCode 同步</button>
 </div>
 
 <div class="main">
@@ -279,10 +346,17 @@ tr:hover td { background: #f9fafb; }
         <button class="sort-btn" id="sortOrderBtn" onclick="toggleSortOrder()" title="切换排序方向">↑</button>
         <button class="btn btn-primary" onclick="openProblemModal()">+ 添加题目</button>
     </div>
+    <div class="batch-toolbar" id="batchToolbar">
+        <span class="batch-count" id="batchCount">0</span> 道题已选中
+        <button class="btn btn-sm" onclick="batchUpdateStatus('已解')">标记已解</button>
+        <button class="btn btn-sm" onclick="batchUpdateStatus('需复盘')">标记需复盘</button>
+        <button class="btn btn-sm" onclick="batchExportProblems()">导出</button>
+        <button class="btn btn-sm btn-danger" onclick="batchDeleteProblems()">删除</button>
+    </div>
     <div class="card">
         <div class="table-wrap">
             <table id="problemsTable">
-                <thead><tr><th>题号</th><th>标题</th><th>难度</th><th>状态</th><th>分类</th><th>标签</th><th>页码</th><th>操作</th></tr></thead>
+                <thead><tr><th style="width:30px;"><input type="checkbox" onchange="toggleAllProblems(this)"></th><th>题号</th><th>标题</th><th>难度</th><th>状态</th><th>分类</th><th>标签</th><th>页码</th><th>操作</th></tr></thead>
                 <tbody></tbody>
             </table>
         </div>
@@ -357,6 +431,13 @@ tr:hover td { background: #f9fafb; }
                 </div>
             </div>
             <div id="reviewMeta" style="margin-bottom:16px;font-size:13px;color:var(--text2);"></div>
+            <div id="reviewProgress" style="margin-bottom:16px;">
+                <div style="font-size:13px;color:var(--text2);margin-bottom:6px;">艾宾浩斯进度</div>
+                <div style="display:flex;gap:4px;">
+                    <div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden;"><div id="progressBar" style="height:100%;background:var(--primary);border-radius:4px;transition:width 0.3s;"></div></div>
+                    <span id="progressText" style="font-size:12px;color:var(--text2);min-width:50px;"></span>
+                </div>
+            </div>
             <div id="reviewAnswer" style="display:none;border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;background:#fafbfc;">
                 <div id="reviewNotes" class="detail-md" style="margin-bottom:12px;"></div>
                 <div id="reviewComplexity" style="font-size:13px;color:var(--text2);margin-bottom:8px;"></div>
@@ -376,6 +457,15 @@ tr:hover td { background: #f9fafb; }
             </div>
         </div>
     </div>
+    <div class="card" id="reviewTimelineCard">
+        <div class="card-title">复习时间线</div>
+        <div class="table-wrap">
+            <table id="reviewTimelineTable">
+                <thead><tr><th>题号</th><th>标题</th><th>阶段</th><th>下次复习</th><th>状态</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
     <div class="card" id="reviewHistoryCard" style="display:none;">
         <div class="card-title">今日已复习</div>
         <div class="table-wrap">
@@ -384,6 +474,85 @@ tr:hover td { background: #f9fafb; }
                 <tbody></tbody>
             </table>
         </div>
+    </div>
+</div>
+
+<!-- Problem Lists -->
+<div id="tab-lists" class="tab-content">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h2>我的题单</h2>
+        <button class="btn btn-primary" onclick="openProblemListModal()">+ 创建题单</button>
+    </div>
+    <div id="problemListsContainer"></div>
+    <div id="problemListDetail" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+            <div>
+                <button class="btn btn-sm" onclick="backToLists()" style="margin-right:10px;">← 返回</button>
+                <span id="listDetailTitle" style="font-size:18px; font-weight:600;"></span>
+            </div>
+            <div style="display:flex; gap:8px;">
+                <button class="btn" onclick="addProblemToList()">添加题目</button>
+                <button class="btn btn-danger" onclick="deleteCurrentList()">删除题单</button>
+            </div>
+        </div>
+        <div class="card">
+            <div class="table-wrap">
+                <table id="listItemsTable">
+                    <thead><tr><th>序号</th><th>题号</th><th>标题</th><th>难度</th><th>状态</th><th>备注</th><th>操作</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- LeetCode Sync -->
+<div id="tab-leetcode" class="tab-content">
+    <div class="card">
+        <div class="card-title">LeetCode 账号登录</div>
+        <p style="font-size:13px; color:var(--text2); margin-bottom:12px;">
+            通过 Cookie 登录 LeetCode，可以自动同步题目数据和做题进度。
+            <br>获取方式：登录 leetcode.cn → 浏览器 F12 → Application → Cookies → 复制全部
+        </p>
+        <div id="loginForm">
+            <div class="form-group">
+                <label>Cookie</label>
+                <textarea id="leetcodeCookie" rows="3" placeholder="粘贴你的 LeetCode Cookie..."></textarea>
+            </div>
+            <div style="display:flex; gap:8px;">
+                <button class="btn btn-primary" onclick="loginLeetCode()">登录</button>
+                <button class="btn" onclick="checkLeetCodeStatus()">检查状态</button>
+            </div>
+        </div>
+        <div id="loginStatus" style="display:none; margin-top:12px;">
+            <span style="color:var(--success);">✓ 已登录</span>
+            <span id="leetcodeUsername" style="margin-left:8px;"></span>
+            <button class="btn btn-sm btn-danger" onclick="logoutLeetCode()" style="margin-left:12px;">退出登录</button>
+        </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+        <div class="card-title">题目搜索与导入</div>
+        <div style="display:flex; gap:10px; margin-bottom:12px;">
+            <input type="text" id="lcSearchInput" placeholder="搜索 LeetCode 题目..." style="flex:1;">
+            <select id="lcSearchDifficulty" style="width:120px;">
+                <option value="">全部难度</option>
+                <option value="Easy">简单</option>
+                <option value="Medium">中等</option>
+                <option value="Hard">困难</option>
+            </select>
+            <button class="btn btn-primary" onclick="searchLeetCode()">搜索</button>
+        </div>
+        <div id="lcSearchResults"></div>
+        <div id="lcImportActions" style="display:none; margin-top:12px;">
+            <button class="btn btn-primary" onclick="importSelectedProblems()">导入选中题目</button>
+            <button class="btn" onclick="selectAllLcResults()">全选</button>
+        </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+        <div class="card-title">做题进度同步</div>
+        <p style="font-size:13px; color:var(--text2); margin-bottom:12px;">同步你在 LeetCode 上的做题记录，自动更新本地题目状态。</p>
+        <button class="btn btn-primary" onclick="syncLeetCodeProgress()">同步进度</button>
+        <div id="syncResult" style="margin-top:12px; display:none;"></div>
     </div>
 </div>
 
@@ -535,6 +704,8 @@ function switchTab(name, e) {
     if (name === 'tags') loadTags();
     if (name === 'notes') loadNotes();
     if (name === 'review') loadReview();
+    if (name === 'lists') loadProblemLists();
+    if (name === 'leetcode') checkLeetCodeStatus();
 }
 
 // --- Modal helpers ---
@@ -606,14 +777,15 @@ function statusBadge(s) {
 function renderProblemsTable(data) {
     const tbody = document.querySelector('#problemsTable tbody');
     if (data.items.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty">暂无题目，点击上方"添加题目"开始记录</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="empty">暂无题目，点击上方"添加题目"开始记录</td></tr>';
         document.getElementById('pageInfo').textContent = '';
         document.getElementById('pageBtns').innerHTML = '';
         return;
     }
     tbody.innerHTML = data.items.map(p => `
         <tr class="clickable-row" onclick='showProblemDetail(${JSON.stringify(p)})'>
-            <td><strong>${p.leetcode_number}</strong></td>
+            <td onclick="event.stopPropagation()"><input type="checkbox" class="problem-checkbox" value="${p.id}" onchange="updateBatchToolbar()"></td>
+            <td>${p.leetcode_slug ? `<a href="https://leetcode.cn/problems/${p.leetcode_slug}/" target="_blank" onclick="event.stopPropagation()"><strong>${p.leetcode_number}</strong></a>` : `<strong>${p.leetcode_number}</strong>`}</td>
             <td>${p.title}${p.title_cn ? '<br><small style="color:var(--text2)">' + p.title_cn + '</small>' : ''}</td>
             <td>${difficultyBadge(p.difficulty)}</td>
             <td>${statusBadge(p.status)}</td>
@@ -642,6 +814,77 @@ function renderProblemsTable(data) {
     }
     btns += `<button class="page-btn" onclick="goPage(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}>&gt;</button>`;
     document.getElementById('pageBtns').innerHTML = btns;
+}
+
+// ========== 批量操作 ==========
+function toggleAllProblems(checkbox) {
+    document.querySelectorAll('.problem-checkbox').forEach(cb => {
+        cb.checked = checkbox.checked;
+    });
+    updateBatchToolbar();
+}
+
+function updateBatchToolbar() {
+    const checked = document.querySelectorAll('.problem-checkbox:checked');
+    const toolbar = document.getElementById('batchToolbar');
+    if (checked.length > 0) {
+        toolbar.classList.add('show');
+        document.getElementById('batchCount').textContent = checked.length;
+    } else {
+        toolbar.classList.remove('show');
+    }
+}
+
+function getSelectedProblemIds() {
+    return [...document.querySelectorAll('.problem-checkbox:checked')].map(cb => parseInt(cb.value));
+}
+
+async function batchDeleteProblems() {
+    const ids = getSelectedProblemIds();
+    if (ids.length === 0) return;
+    if (!confirm(`确定删除选中的 ${ids.length} 道题目？`)) return;
+    try {
+        await api('POST', '/batch/problems/delete', { ids });
+        showToast(`已删除 ${ids.length} 道题目`);
+        loadProblems();
+        loadDashboard();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function batchUpdateStatus(status) {
+    const ids = getSelectedProblemIds();
+    if (ids.length === 0) return;
+    try {
+        await api('POST', '/batch/problems/status', { ids, status });
+        showToast(`已更新 ${ids.length} 道题目的状态`);
+        loadProblems();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function batchExportProblems() {
+    const ids = getSelectedProblemIds();
+    if (ids.length === 0) return;
+    try {
+        const response = await fetch('/api/batch/problems/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids }),
+        });
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'problems_export.csv';
+        a.click();
+        window.URL.revokeObjectURL(url);
+        showToast(`已导出 ${ids.length} 道题目`);
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
 }
 
 function goPage(p) {
@@ -1230,9 +1473,11 @@ function showProblemDetail(p) {
     let html = '';
     if (p.title_cn) html += `<div class="detail-field"><div class="detail-label">中文标题</div><div class="detail-value">${p.title_cn}</div></div>`;
     html += `<div class="detail-field"><div class="detail-label">难度 / 状态</div><div class="detail-value">${difficultyBadge(p.difficulty)} ${statusBadge(p.status)}</div></div>`;
+    if (p.leetcode_slug) html += `<div class="detail-field"><div class="detail-label">LeetCode 链接</div><div class="detail-value"><a href="https://leetcode.cn/problems/${p.leetcode_slug}/" target="_blank">打开题目 →</a></div></div>`;
     if (p.page_number) html += `<div class="detail-field"><div class="detail-label">笔记页码</div><div class="detail-value">P${p.page_number}</div></div>`;
     if (p.categories.length) html += `<div class="detail-field"><div class="detail-label">分类</div><div class="detail-value">${p.categories.map(c => '<span class="cat-dot" style="background:' + (c.color||'var(--primary)') + '"></span>' + c.name).join(' ')}</div></div>`;
     if (p.tags.length) html += `<div class="detail-field"><div class="detail-label">标签</div><div class="detail-value">${p.tags.map(t => '<span class="tag-badge">' + t.name + '</span>').join('')}</div></div>`;
+    if (p.ac_rate) html += `<div class="detail-field"><div class="detail-label">通过率</div><div class="detail-value">${p.ac_rate.toFixed(1)}%</div></div>`;
     if (p.solution_url) html += `<div class="detail-field"><div class="detail-label">解题链接</div><div class="detail-value"><a href="${p.solution_url}" target="_blank">${p.solution_url}</a></div></div>`;
     if (p.time_complexity || p.space_complexity) html += `<div class="detail-field"><div class="detail-label">复杂度</div><div class="detail-value">时间: ${p.time_complexity||'-'} / 空间: ${p.space_complexity||'-'}</div></div>`;
     if (p.notes) html += `<div class="detail-field"><div class="detail-label">笔记</div><div class="detail-value detail-md">${renderMarkdown(p.notes)}</div></div>`;
@@ -1248,16 +1493,372 @@ function showNoteDetail(n) {
     if (n.categories.length) html += `<div class="detail-field"><div class="detail-label">分类</div><div class="detail-value">${n.categories.map(c => '<span class="cat-dot" style="background:' + (c.color||'var(--primary)') + '"></span>' + c.name).join(' ')}</div></div>`;
     if (n.tags.length) html += `<div class="detail-field"><div class="detail-label">标签</div><div class="detail-value">${n.tags.map(t => '<span class="tag-badge">' + t.name + '</span>').join('')}</div></div>`;
     if (n.content) html += `<div class="detail-field"><div class="detail-label">内容</div><div class="detail-value detail-md">${renderMarkdown(n.content)}</div></div>`;
+    if (n.file_path) html += `<div class="detail-field"><div class="detail-label">PDF 附件</div><div class="detail-value"><a href="/api/notes/${n.id}/download-pdf" target="_blank">下载 PDF</a></div></div>`;
     html += `<div class="modal-actions"><button class="btn" onclick="closeModal('detailModal')">关闭</button></div>`;
     document.getElementById('detailContent').innerHTML = html;
     openModal('detailModal');
 }
+
+// ========== 全局搜索 ==========
+let globalSearchTimer = null;
+
+function debounceGlobalSearch() {
+    clearTimeout(globalSearchTimer);
+    globalSearchTimer = setTimeout(doGlobalSearch, 300);
+}
+
+function showSearchPanel() {
+    const q = document.getElementById('globalSearch').value.trim();
+    if (q.length >= 1) {
+        document.getElementById('searchPanel').style.display = 'block';
+    }
+}
+
+function hideSearchPanel() {
+    document.getElementById('searchPanel').style.display = 'none';
+}
+
+async function doGlobalSearch() {
+    const q = document.getElementById('globalSearch').value.trim();
+    if (q.length < 1) {
+        hideSearchPanel();
+        return;
+    }
+    try {
+        const data = await api('GET', '/search?q=' + encodeURIComponent(q) + '&limit=5');
+        renderSearchResults(data);
+        document.getElementById('searchPanel').style.display = 'block';
+    } catch (e) {
+        console.error('Search failed:', e);
+    }
+}
+
+function renderSearchResults(data) {
+    const el = document.getElementById('searchResults');
+    let html = '';
+    if (data.problems.length) {
+        html += '<div style="padding:8px 12px;font-size:12px;font-weight:600;color:var(--text2);background:var(--bg);">题目</div>';
+        html += data.problems.map(p => `
+            <div class="search-result-item" onclick="switchTab('problems');hideSearchPanel();">
+                <span class="search-result-type">题目</span>
+                <span><strong>${p.leetcode_number}</strong> ${p.title}</span>
+                ${p.title_cn ? `<span style="color:var(--text2);font-size:12px;">${p.title_cn}</span>` : ''}
+            </div>
+        `).join('');
+    }
+    if (data.notes.length) {
+        html += '<div style="padding:8px 12px;font-size:12px;font-weight:600;color:var(--text2);background:var(--bg);">笔记</div>';
+        html += data.notes.map(n => `
+            <div class="search-result-item" onclick="switchTab('notes');hideSearchPanel();">
+                <span class="search-result-type">笔记</span>
+                <span>${n.title}</span>
+                ${n.snippet ? `<span style="color:var(--text2);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;">${n.snippet}</span>` : ''}
+            </div>
+        `).join('');
+    }
+    if (data.problem_lists.length) {
+        html += '<div style="padding:8px 12px;font-size:12px;font-weight:600;color:var(--text2);background:var(--bg);">题单</div>';
+        html += data.problem_lists.map(pl => `
+            <div class="search-result-item" onclick="switchTab('lists');hideSearchPanel();">
+                <span class="search-result-type">题单</span>
+                <span>${pl.name}</span>
+            </div>
+        `).join('');
+    }
+    if (!data.problems.length && !data.notes.length && !data.problem_lists.length) {
+        html = '<div style="padding:20px;text-align:center;color:var(--text2);">无搜索结果</div>';
+    }
+    el.innerHTML = html;
+}
+
+// ========== 题单管理 ==========
+let currentListId = null;
+
+async function loadProblemLists() {
+    try {
+        const lists = await api('GET', '/problem-lists');
+        renderProblemLists(lists);
+    } catch (e) {
+        showToast('加载题单失败', 'error');
+    }
+}
+
+function renderProblemLists(lists) {
+    const el = document.getElementById('problemListsContainer');
+    if (lists.length === 0) {
+        el.innerHTML = '<div class="empty"><p>暂无题单</p><p>点击上方"创建题单"开始</p></div>';
+        return;
+    }
+    el.innerHTML = lists.map(l => `
+        <div class="list-card" onclick="openProblemList(${l.id})">
+            <div class="list-card-title">${l.name}</div>
+            ${l.description ? `<div class="list-card-desc">${l.description}</div>` : ''}
+            <div class="list-card-meta">${l.item_count} 道题 · 创建于 ${new Date(l.created_at).toLocaleDateString('zh-CN')}</div>
+        </div>
+    `).join('');
+}
+
+async function openProblemList(id) {
+    currentListId = id;
+    try {
+        const list = await api('GET', '/problem-lists/' + id);
+        document.getElementById('listDetailTitle').textContent = list.name;
+        document.getElementById('problemListsContainer').style.display = 'none';
+        document.getElementById('problemListDetail').style.display = 'block';
+        renderListItems(list.items);
+    } catch (e) {
+        showToast('加载题单详情失败', 'error');
+    }
+}
+
+function renderListItems(items) {
+    const tbody = document.querySelector('#listItemsTable tbody');
+    if (items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">题单为空，点击上方"添加题目"开始</td></tr>';
+        return;
+    }
+    tbody.innerHTML = items.map((item, idx) => `
+        <tr>
+            <td>${idx + 1}</td>
+            <td><strong>${item.problem.leetcode_number}</strong></td>
+            <td>${item.problem.title}</td>
+            <td>${difficultyBadge(item.problem.difficulty)}</td>
+            <td>${statusBadge(item.problem.status)}</td>
+            <td>${item.note || '-'}</td>
+            <td>
+                <button class="btn btn-sm btn-danger" onclick="removeItemFromList(${item.id})">移除</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function backToLists() {
+    currentListId = null;
+    document.getElementById('problemListsContainer').style.display = 'block';
+    document.getElementById('problemListDetail').style.display = 'none';
+    loadProblemLists();
+}
+
+function openProblemListModal() {
+    const name = prompt('题单名称:');
+    if (!name) return;
+    const desc = prompt('题单描述（可选）:');
+    createProblemList(name, desc);
+}
+
+async function createProblemList(name, description) {
+    try {
+        await api('POST', '/problem-lists', { name, description: description || null });
+        showToast('题单创建成功');
+        loadProblemLists();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function deleteCurrentList() {
+    if (!currentListId) return;
+    if (!confirm('确定删除这个题单？')) return;
+    try {
+        await api('DELETE', '/problem-lists/' + currentListId);
+        showToast('题单已删除');
+        backToLists();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+function addProblemToList() {
+    const problemId = prompt('输入题目 ID:');
+    if (!problemId) return;
+    addItemToList(currentListId, parseInt(problemId));
+}
+
+async function addItemToList(listId, problemId) {
+    try {
+        await api('POST', '/problem-lists/' + listId + '/items', { problem_id: problemId });
+        showToast('已添加到题单');
+        openProblemList(listId);
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function removeItemFromList(itemId) {
+    if (!currentListId) return;
+    try {
+        await api('DELETE', '/problem-lists/' + currentListId + '/items/' + itemId);
+        showToast('已移除');
+        openProblemList(currentListId);
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+// ========== LeetCode 同步 ==========
+let lcSearchResults = [];
+let selectedLcProblems = new Set();
+
+async function checkLeetCodeStatus() {
+    try {
+        const data = await api('GET', '/leetcode/status');
+        if (data.logged_in) {
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('loginStatus').style.display = 'block';
+            document.getElementById('leetcodeUsername').textContent = data.username;
+            document.getElementById('leetcodeStatus').textContent = '已登录: ' + data.username;
+        } else {
+            document.getElementById('loginForm').style.display = 'block';
+            document.getElementById('loginStatus').style.display = 'none';
+            document.getElementById('leetcodeStatus').textContent = '';
+        }
+    } catch (e) {
+        console.error('Check status failed:', e);
+    }
+}
+
+async function loginLeetCode() {
+    const cookie = document.getElementById('leetcodeCookie').value.trim();
+    if (!cookie) {
+        showToast('请输入 Cookie', 'error');
+        return;
+    }
+    try {
+        const data = await api('POST', '/leetcode/login', { cookie });
+        showToast('登录成功: ' + data.username);
+        document.getElementById('leetcodeCookie').value = '';
+        checkLeetCodeStatus();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function logoutLeetCode() {
+    try {
+        await api('DELETE', '/leetcode/logout');
+        showToast('已退出登录');
+        checkLeetCodeStatus();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function searchLeetCode() {
+    const q = document.getElementById('lcSearchInput').value.trim();
+    const difficulty = document.getElementById('lcSearchDifficulty').value;
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (difficulty) params.set('difficulty', difficulty);
+    params.set('limit', '50');
+    try {
+        const data = await api('GET', '/leetcode/search?' + params.toString());
+        lcSearchResults = data.questions || [];
+        selectedLcProblems.clear();
+        renderLcSearchResults();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+function renderLcSearchResults() {
+    const el = document.getElementById('lcSearchResults');
+    if (lcSearchResults.length === 0) {
+        el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text2);">无搜索结果</div>';
+        document.getElementById('lcImportActions').style.display = 'none';
+        return;
+    }
+    el.innerHTML = lcSearchResults.map(q => `
+        <div class="lc-result-item">
+            <input type="checkbox" ${selectedLcProblems.has(q.frontendQuestionId) ? 'checked' : ''} onchange="toggleLcSelect('${q.frontendQuestionId}')">
+            <span style="min-width:50px;"><strong>${q.frontendQuestionId}</strong></span>
+            <span style="flex:1;">${q.title}</span>
+            ${q.titleCn ? `<span style="color:var(--text2);font-size:12px;">${q.titleCn}</span>` : ''}
+            <span style="min-width:60px;">${difficultyBadge(q.difficulty === 'Easy' ? 'EASY' : q.difficulty === 'Medium' ? 'MEDIUM' : 'HARD')}</span>
+            <span style="min-width:60px;font-size:12px;color:var(--text2);">${q.acRate ? q.acRate.toFixed(1) + '%' : '-'}</span>
+        </div>
+    `).join('');
+    document.getElementById('lcImportActions').style.display = 'block';
+}
+
+function toggleLcSelect(id) {
+    if (selectedLcProblems.has(id)) {
+        selectedLcProblems.delete(id);
+    } else {
+        selectedLcProblems.add(id);
+    }
+}
+
+function selectAllLcResults() {
+    lcSearchResults.forEach(q => selectedLcProblems.add(q.frontendQuestionId));
+    renderLcSearchResults();
+}
+
+async function importSelectedProblems() {
+    if (selectedLcProblems.size === 0) {
+        showToast('请先选择题目', 'error');
+        return;
+    }
+    const problems = lcSearchResults.filter(q => selectedLcProblems.has(q.frontendQuestionId));
+    try {
+        const data = await api('POST', '/leetcode/import', { problems });
+        showToast(`导入完成: ${data.imported} 道题，${data.skipped} 道跳过`);
+        selectedLcProblems.clear();
+        loadProblems();
+        loadDashboard();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function syncLeetCodeProgress() {
+    try {
+        const data = await api('POST', '/leetcode/sync-progress');
+        const el = document.getElementById('syncResult');
+        el.style.display = 'block';
+        el.innerHTML = `<span style="color:var(--success);">✓ 同步完成</span>：已更新 ${data.synced} 道题的状态`;
+        loadProblems();
+        loadDashboard();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+// ========== 复习时间线 ==========
+async function loadReviewTimeline() {
+    try {
+        const timeline = await api('GET', '/reviews/timeline');
+        const tbody = document.querySelector('#reviewTimelineTable tbody');
+        if (timeline.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无复习计划</td></tr>';
+            return;
+        }
+        tbody.innerHTML = timeline.map(item => `
+            <tr>
+                <td><strong>${item.leetcode_number || '-'}</strong></td>
+                <td>${item.title || '-'}</td>
+                <td>阶段 ${item.stage + 1}/${item.total_stages}</td>
+                <td>${new Date(item.next_review_at).toLocaleDateString('zh-CN')}</td>
+                <td>${item.is_overdue ? '<span style="color:var(--danger);">已到期</span>' : '<span style="color:var(--text2);">待复习</span>'}</td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        console.error('Load timeline failed:', e);
+    }
+}
+
+// 更新 loadReview 函数以加载时间线
+const originalLoadReview = loadReview;
+loadReview = async function() {
+    await originalLoadReview();
+    loadReviewTimeline();
+};
 
 // --- Init ---
 document.addEventListener('DOMContentLoaded', async () => {
     await loadRefData();
     loadProblems();
     loadDashboard();
+    checkLeetCodeStatus();
 });
 </script>
 </body>

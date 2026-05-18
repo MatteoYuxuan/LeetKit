@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from database import engine, Base, SessionLocal
 from models import Category
-from routers import problems, categories, tags, stats, import_export, notes, reviews
+from routers import problems, categories, tags, stats, import_export, notes, reviews, search, problem_lists, leetcode, batch
 
 DEFAULT_CATEGORIES = [
     "数组", "字符串", "链表", "栈", "队列", "哈希表",
@@ -14,8 +14,55 @@ DEFAULT_CATEGORIES = [
 ]
 
 
+def migrate_database():
+    """自动迁移数据库，添加新字段和表"""
+    import sqlite3
+    import os
+
+    db_path = os.path.join(os.path.dirname(__file__), "data", "notebook.db")
+    if not os.path.exists(db_path):
+        return
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # 获取 problems 表现有列
+    cursor.execute("PRAGMA table_info(problems)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    # problems 表新增字段
+    new_columns = {
+        "leetcode_slug": "TEXT",
+        "topic_tags": "TEXT",
+        "ac_rate": "REAL",
+        "last_synced_at": "TIMESTAMP",
+    }
+    for col_name, col_type in new_columns.items():
+        if col_name not in existing_columns:
+            cursor.execute(f"ALTER TABLE problems ADD COLUMN {col_name} {col_type}")
+
+    # 获取 notes 表现有列
+    cursor.execute("PRAGMA table_info(notes)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    # notes 表新增字段
+    new_columns = {
+        "format": "TEXT DEFAULT 'markdown'",
+        "file_path": "TEXT",
+    }
+    for col_name, col_type in new_columns.items():
+        if col_name not in existing_columns:
+            cursor.execute(f"ALTER TABLE notes ADD COLUMN {col_name} {col_type}")
+
+    conn.commit()
+    conn.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 先执行迁移（对已有数据库添加新字段）
+    migrate_database()
+    # 再创建所有表（包括新增的表）
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
@@ -28,7 +75,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="LeetCode Notebook", lifespan=lifespan)
+app = FastAPI(title="LeetKit", lifespan=lifespan)
 
 app.include_router(problems.router, prefix="/api")
 app.include_router(categories.router, prefix="/api")
@@ -37,6 +84,10 @@ app.include_router(stats.router, prefix="/api")
 app.include_router(import_export.router, prefix="/api")
 app.include_router(notes.router, prefix="/api")
 app.include_router(reviews.router, prefix="/api")
+app.include_router(search.router, prefix="/api")
+app.include_router(problem_lists.router, prefix="/api")
+app.include_router(leetcode.router, prefix="/api")
+app.include_router(batch.router, prefix="/api")
 
 
 @app.get("/")

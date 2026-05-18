@@ -47,6 +47,7 @@ class ProblemCreate(BaseModel):
     leetcode_number: int
     title: str = Field(..., max_length=200)
     title_cn: str | None = None
+    leetcode_slug: str | None = None
     page_number: int | None = None
     difficulty: Literal["EASY", "MEDIUM", "HARD"]
     status: Literal["未做", "在做", "已解", "需复盘"] = "未做"
@@ -61,6 +62,7 @@ class ProblemCreate(BaseModel):
 class ProblemUpdate(BaseModel):
     title: str | None = None
     title_cn: str | None = None
+    leetcode_slug: str | None = None
     page_number: int | None = None
     difficulty: Literal["EASY", "MEDIUM", "HARD"] | None = None
     status: Literal["未做", "在做", "已解", "需复盘"] | None = None
@@ -77,6 +79,7 @@ class ProblemResponse(BaseModel):
     leetcode_number: int
     title: str
     title_cn: str | None
+    leetcode_slug: str | None
     page_number: int | None
     difficulty: str
     status: str
@@ -86,6 +89,7 @@ class ProblemResponse(BaseModel):
     solution_url: str | None
     time_complexity: str | None
     space_complexity: str | None
+    ac_rate: float | None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
@@ -123,6 +127,8 @@ class NoteResponse(BaseModel):
     categories: list[CategoryResponse]
     tags: list[TagResponse]
     content: str | None
+    format: str = "markdown"
+    file_path: str | None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)

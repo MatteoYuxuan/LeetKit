@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Integer, String, Text, DateTime, ForeignKey, Table, Column
+from sqlalchemy import Integer, String, Text, DateTime, Float, ForeignKey, Table, Column, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database import Base
 
@@ -63,6 +63,7 @@ class Problem(Base):
     leetcode_number: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     title_cn: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    leetcode_slug: Mapped[str | None] = mapped_column(String(200), nullable=True)
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     difficulty: Mapped[str] = mapped_column(String(10), nullable=False)
     status: Mapped[str] = mapped_column(String(10), nullable=False, default="未做")
@@ -70,6 +71,9 @@ class Problem(Base):
     solution_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     time_complexity: Mapped[str | None] = mapped_column(String(50), nullable=True)
     space_complexity: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    topic_tags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ac_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -85,6 +89,8 @@ class Note(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    format: Mapped[str] = mapped_column(String(20), nullable=False, default="markdown")
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -102,3 +108,53 @@ class ReviewRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     problem: Mapped["Problem"] = relationship("Problem", back_populates="reviews")
+
+
+class ProblemList(Base):
+    __tablename__ = "problem_lists"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    items: Mapped[list["ProblemListItem"]] = relationship("ProblemListItem", back_populates="problem_list", cascade="all, delete-orphan", order_by="ProblemListItem.sort_order")
+
+
+class ProblemListItem(Base):
+    __tablename__ = "problem_list_items"
+    __table_args__ = (UniqueConstraint("problem_list_id", "problem_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    problem_list_id: Mapped[int] = mapped_column(Integer, ForeignKey("problem_lists.id", ondelete="CASCADE"), nullable=False)
+    problem_id: Mapped[int] = mapped_column(Integer, ForeignKey("problems.id", ondelete="CASCADE"), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    problem_list: Mapped["ProblemList"] = relationship("ProblemList", back_populates="items")
+    problem: Mapped["Problem"] = relationship("Problem")
+
+
+class LeetCodeCookie(Base):
+    __tablename__ = "leetcode_cookies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cookie_value: Mapped[str] = mapped_column(Text, nullable=False)
+    leetcode_username: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    last_validated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class ReviewSchedule(Base):
+    __tablename__ = "review_schedules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    problem_id: Mapped[int] = mapped_column(Integer, ForeignKey("problems.id", ondelete="CASCADE"), nullable=False)
+    stage: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_review_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_completed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    problem: Mapped["Problem"] = relationship("Problem")
