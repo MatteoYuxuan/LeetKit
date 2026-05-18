@@ -1778,13 +1778,15 @@ function renderLcSearchResults() {
         return;
     }
     el.innerHTML = lcSearchResults.map(q => `
-        <div class="lc-result-item">
+        <div class="lc-result-item" style="display:grid; grid-template-columns:30px 60px 1fr 80px 70px; gap:12px; align-items:center;">
             <input type="checkbox" ${selectedLcProblems.has(q.frontendQuestionId) ? 'checked' : ''} onchange="toggleLcSelect('${q.frontendQuestionId}')">
-            <span style="min-width:50px;"><strong>${q.frontendQuestionId}</strong></span>
-            <span style="flex:1;">${q.title}</span>
-            ${q.titleCn ? `<span style="color:var(--text2);font-size:12px;">${q.titleCn}</span>` : ''}
-            <span style="min-width:60px;">${difficultyBadge(q.difficulty === 'Easy' ? 'EASY' : q.difficulty === 'Medium' ? 'MEDIUM' : 'HARD')}</span>
-            <span style="min-width:60px;font-size:12px;color:var(--text2);">${q.acRate ? q.acRate.toFixed(1) + '%' : '-'}</span>
+            <span style="font-weight:600; color:var(--primary);">${q.frontendQuestionId}</span>
+            <div>
+                <div style="font-size:14px;">${q.title}</div>
+                ${q.titleCn ? `<div style="font-size:12px; color:var(--text2); margin-top:2px;">${q.titleCn}</div>` : ''}
+            </div>
+            <span>${difficultyBadge(q.difficulty === 'Easy' ? 'EASY' : q.difficulty === 'Medium' ? 'MEDIUM' : 'HARD')}</span>
+            <span style="font-size:12px; color:var(--text2); text-align:right;">${q.acRate ? q.acRate.toFixed(1) + '%' : '-'}</span>
         </div>
     `).join('');
     document.getElementById('lcImportActions').style.display = 'block';
