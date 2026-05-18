@@ -43,16 +43,46 @@ query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $fi
     }
 }
 
-RECENT_AC_SUBMISSIONS = {
-    "operationName": "recentACSubmissions",
-    "query": """
-query recentACSubmissions {
-    recentACSubmissions {
-        title
-        titleSlug
-        timestamp
+# 获取用户做题进度（按难度统计）
+def get_user_progress_query(user_slug: str):
+    return {
+        "operationName": "userQuestionProgress",
+        "query": """
+query userQuestionProgress($userSlug: String!) {
+    userProfileUserQuestionProgress(userSlug: $userSlug) {
+        numAcceptedQuestions {
+            difficulty
+            count
+        }
+        numFailedQuestions {
+            difficulty
+            count
+        }
+        numUntouchedQuestions {
+            difficulty
+            count
+        }
     }
 }
 """,
-    "variables": {}
+        "variables": {"userSlug": user_slug}
+    }
+
+# 获取用户最近通过的题目
+def get_recent_ac_query(user_slug: str):
+    return {
+        "operationName": "recentACSubmissions",
+        "query": """
+query recentACSubmissions($userSlug: String!) {
+    recentACSubmissions(userSlug: $userSlug) {
+        submissionId
+        submitTime
+        question {
+            translatedTitle
+            titleSlug
+        }
+    }
 }
+""",
+        "variables": {"userSlug": user_slug}
+    }

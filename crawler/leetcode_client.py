@@ -109,7 +109,14 @@ class LeetCodeClient:
             "questions": result.get("questions", []),
         }
 
-    async def get_recent_ac_submissions(self) -> list:
-        """获取最近通过的提交"""
-        data = await self._graphql(queries.RECENT_AC_SUBMISSIONS)
+    async def get_user_progress(self, user_slug: str) -> dict:
+        """获取用户做题进度"""
+        payload = queries.get_user_progress_query(user_slug)
+        data = await self._graphql(payload)
+        return data.get("data", {}).get("userProfileUserQuestionProgress", {})
+
+    async def get_recent_ac_submissions(self, user_slug: str) -> list:
+        """获取最近通过的题目"""
+        payload = queries.get_recent_ac_query(user_slug)
+        data = await self._graphql(payload)
         return data.get("data", {}).get("recentACSubmissions", [])

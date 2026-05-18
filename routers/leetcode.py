@@ -143,12 +143,20 @@ async def sync_progress(db: Session = Depends(get_db)):
     try:
         client = LeetCodeClient(cookie=cookie.cookie_value)
 
-        # 获取最近通过的题目
-        recent_ac = await client.get_recent_ac_submissions()
+        # 先验证 cookie 并获取用户名
+        user_info = await client.verify_cookie()
+        if not user_info["is_signed_in"]:
+            raise HTTPException(status_code=401, detail="Cookie 已过期，请重新登录")
+
+        username = user_info["username"]
+
+        # 获取最近通过的题目（需要 userSlug）
+        recent_ac = await client.get_recent_ac_submissions(username)
 
         synced = 0
         for submission in recent_ac:
-            slug = submission.get("titleSlug", "")
+            question = submission.get("question", {})
+            slug = question.get("titleSlug", "")
             if not slug:
                 continue
 
@@ -159,6 +167,8 @@ async def sync_progress(db: Session = Depends(get_db)):
                 synced += 1
 
         db.commit()
-        return {"synced": synced, "total_ac": len(recent_ac)}
+        return {"synced": synced, "total_ac": len(recent_ac), "username": username}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"同步失败: {str(e)}")
