@@ -135,17 +135,39 @@ def delete_resource(resource_id: int, db: Session = Depends(get_db)):
     return {"message": "已删除"}
 
 
+import mimetypes
+
+# 浏览器可直接预览的资源类型
+INLINE_TYPES = {"pdf", "image"}
+MIME_MAP = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".md": "text/markdown",
+    ".csv": "text/csv",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xls": "application/vnd.ms-excel",
+}
+
+
 @router.get("/{resource_id}/download")
 def download_file(resource_id: int, db: Session = Depends(get_db)):
-    """下载文件资源"""
+    """下载/预览文件资源"""
     resource = db.query(ProblemResource).filter(ProblemResource.id == resource_id).first()
     if not resource:
         raise HTTPException(status_code=404, detail="资源不存在")
     if not resource.file_path or not os.path.exists(resource.file_path):
         raise HTTPException(status_code=404, detail="文件不存在")
 
+    ext = os.path.splitext(resource.name)[1].lower()
+    media_type = MIME_MAP.get(ext) or mimetypes.guess_type(resource.name)[0] or "application/octet-stream"
+    inline = resource.resource_type in INLINE_TYPES
+
     return FileResponse(
         resource.file_path,
+        media_type=media_type,
+        content_disposition_type="inline" if inline else "attachment",
         filename=resource.name,
-        media_type="application/octet-stream"
     )

@@ -1608,7 +1608,7 @@ async function loadReviewResources(problemId) {
             if (r.resource_type === 'link') {
                 return `<a href="${r.url}" target="_blank" class="btn" style="padding:6px 12px;font-size:13px;">${icon} ${r.name}</a>`;
             } else {
-                return `<a href="/api/resources/${r.id}/download" class="btn" style="padding:6px 12px;font-size:13px;">${icon} ${r.name}</a>`;
+                return `<a href="/api/resources/${r.id}/download" target="_blank" class="btn" style="padding:6px 12px;font-size:13px;">${icon} ${r.name}</a>`;
             }
         }).join('');
     } catch (e) {
@@ -1711,7 +1711,7 @@ async function loadProblemResources(problemId) {
                 <span>${RESOURCE_ICONS[r.resource_type] || '📄'}</span>
                 ${r.url
                     ? `<a href="${r.url}" target="_blank" style="flex:1;color:var(--primary);text-decoration:none;">${r.name}</a>`
-                    : `<a href="/api/resources/${r.id}/download" style="flex:1;color:var(--primary);text-decoration:none;">${r.name}</a>`
+                    : `<a href="/api/resources/${r.id}/download" target="_blank" style="flex:1;color:var(--primary);text-decoration:none;">${r.name}</a>`
                 }
                 <button class="btn btn-sm btn-danger" onclick="deleteResource(${r.id})">删除</button>
             </div>
