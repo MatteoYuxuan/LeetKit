@@ -6,13 +6,13 @@ from pydantic import BaseModel, Field, ConfigDict
 # --- Category ---
 
 class CategoryCreate(BaseModel):
-    name: str = Field(..., max_length=50)
+    name: str = Field(..., min_length=1, max_length=50)
     description: str | None = None
     color: str | None = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
 class CategoryUpdate(BaseModel):
-    name: str | None = Field(None, max_length=50)
+    name: str | None = Field(None, min_length=1, max_length=50)
     description: str | None = None
     color: str | None = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
 
@@ -26,13 +26,13 @@ class CategoryResponse(CategoryCreate):
 # --- Tag ---
 
 class TagCreate(BaseModel):
-    name: str = Field(..., max_length=50)
+    name: str = Field(..., min_length=1, max_length=50)
     color: str | None = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
 class TagUpdate(BaseModel):
-    name: str | None = Field(None, max_length=50)
-    color: str | None = None
+    name: str | None = Field(None, min_length=1, max_length=50)
+    color: str | None = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
 class TagResponse(TagCreate):
@@ -44,9 +44,9 @@ class TagResponse(TagCreate):
 # --- Problem ---
 
 class ProblemCreate(BaseModel):
-    leetcode_number: str
+    leetcode_number: str = Field(..., min_length=1, max_length=20)
     title: str = Field(..., max_length=200)
-    title_cn: str | None = None
+    title_cn: str | None = Field(None, max_length=200)
     leetcode_slug: str | None = None
     page_number: int | None = None
     difficulty: Literal["EASY", "MEDIUM", "HARD"]
@@ -182,7 +182,7 @@ class ImportResult(BaseModel):
 class ReviewSubmit(BaseModel):
     problem_id: int
     rating: Literal[0, 1, 2]
-    time_spent: int | None = None
+    time_spent: int | None = Field(None, ge=0, le=86400)
 
 
 class ReviewResponse(BaseModel):

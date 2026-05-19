@@ -1,18 +1,10 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-from database import SessionLocal
+from database import get_db
 from models import Problem, Note, ProblemList
 
 router = APIRouter(tags=["search"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get("/search")
@@ -23,7 +15,8 @@ def global_search(
     db: Session = Depends(get_db),
 ):
     results = {"problems": [], "notes": [], "problem_lists": []}
-    pattern = f"%{q}%"
+    escaped_q = q.replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped_q}%"
 
     if type in ("all", "problems"):
         problems = db.query(Problem).filter(

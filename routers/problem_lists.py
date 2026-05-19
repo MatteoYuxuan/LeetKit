@@ -1,23 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
-from database import SessionLocal
-from models import ProblemList, ProblemListItem, Problem
+from database import get_db
+from models import ProblemList, ProblemListItem, Problem, ReviewSchedule
 
 router = APIRouter(tags=["problem-lists"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 class ProblemListCreate(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = None
 
 
@@ -43,17 +35,28 @@ class BatchAddItemsRequest(BaseModel):
 @router.get("/problem-lists")
 def list_problem_lists(db: Session = Depends(get_db)):
     lists = db.query(ProblemList).order_by(ProblemList.updated_at.desc()).all()
-    return [
-        {
+    result = []
+    for pl in lists:
+        status_counts = {}
+        diff_counts = {}
+        for item in pl.items:
+            s = item.problem.status or '未做'
+            d = item.problem.difficulty or 'EASY'
+            status_counts[s] = status_counts.get(s, 0) + 1
+            diff_counts[d] = diff_counts.get(d, 0) + 1
+        solved = status_counts.get('已解', 0) + status_counts.get('需复盘', 0)
+        result.append({
             "id": pl.id,
             "name": pl.name,
             "description": pl.description,
             "item_count": len(pl.items),
+            "solved_count": solved,
+            "status_counts": status_counts,
+            "difficulty_counts": diff_counts,
             "created_at": pl.created_at.isoformat(),
             "updated_at": pl.updated_at.isoformat(),
-        }
-        for pl in lists
-    ]
+        })
+    return result
 
 
 @router.get("/problem-lists/{list_id}")
@@ -78,6 +81,7 @@ def get_problem_list(list_id: int, db: Session = Depends(get_db)):
                     "leetcode_number": item.problem.leetcode_number,
                     "title": item.problem.title,
                     "title_cn": item.problem.title_cn,
+                    "leetcode_slug": item.problem.leetcode_slug,
                     "difficulty": item.problem.difficulty,
                     "status": item.problem.status,
                 },
@@ -204,3 +208,49 @@ def batch_add_items(list_id: int, data: BatchAddItemsRequest, db: Session = Depe
 
     db.commit()
     return {"added": added, "skipped": skipped}
+
+
+@router.get("/problem-lists/{list_id}/review-stats")
+def get_list_review_stats(list_id: int, db: Session = Depends(get_db)):
+    pl = db.query(ProblemList).filter(ProblemList.id == list_id).first()
+    if not pl:
+        raise HTTPException(status_code=404, detail="题单不存在")
+    problem_ids = [item.problem_id for item in pl.items]
+    if not problem_ids:
+        return {"total": 0, "due": 0, "completed": 0, "not_scheduled": 0, "problem_ids": []}
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+
+    # Get review schedules for these problems
+    schedules = db.query(ReviewSchedule).filter(
+        ReviewSchedule.problem_id.in_(problem_ids)
+    ).all()
+
+    schedule_map = {}
+    for s in schedules:
+        if s.problem_id not in schedule_map:
+            schedule_map[s.problem_id] = []
+        schedule_map[s.problem_id].append(s)
+
+    due = 0
+    completed = 0
+    not_scheduled = 0
+    for pid in problem_ids:
+        pid_schedules = schedule_map.get(pid, [])
+        if not pid_schedules:
+            not_scheduled += 1
+            continue
+        active = [s for s in pid_schedules if not s.is_completed]
+        if not active:
+            completed += 1
+        elif any(s.next_review_at and s.next_review_at <= now for s in active):
+            due += 1
+
+    return {
+        "total": len(problem_ids),
+        "due": due,
+        "completed": completed,
+        "not_scheduled": not_scheduled,
+        "problem_ids": problem_ids,
+    }

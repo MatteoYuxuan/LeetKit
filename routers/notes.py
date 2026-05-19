@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from database import SessionLocal
+from database import get_db
 from models import Note
 import schemas
 import crud
@@ -11,14 +11,6 @@ import crud
 router = APIRouter(tags=["notes"])
 
 NOTES_FILES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "notes_files")
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.get("/notes")
@@ -121,15 +113,23 @@ async def upload_pdf(note_id: int, file: UploadFile = File(...), db: Session = D
     if not note:
         raise HTTPException(status_code=404, detail="笔记不存在")
 
+    # 校验文件类型
+    if file.content_type and file.content_type != "application/pdf":
+        raise HTTPException(status_code=400, detail="仅支持 PDF 文件")
+
     # 创建目录
     note_dir = os.path.join(NOTES_FILES_DIR, str(note_id))
     os.makedirs(note_dir, exist_ok=True)
 
-    # 保存文件
+    # 保存文件（限制 10MB）
     filename = f"{uuid.uuid4().hex}.pdf"
     file_path = os.path.join(note_dir, filename)
+    max_size = 10 * 1024 * 1024
     with open(file_path, "wb") as f:
         content = await file.read()
+        if len(content) > max_size:
+            os.remove(file_path)
+            raise HTTPException(status_code=400, detail="文件大小不能超过 10MB")
         f.write(content)
 
     # 更新数据库
@@ -146,7 +146,9 @@ def download_pdf(note_id: int, db: Session = Depends(get_db)):
     if not note or not note.file_path:
         raise HTTPException(status_code=404, detail="PDF 文件不存在")
 
-    file_path = os.path.join(NOTES_FILES_DIR, note.file_path)
+    # 防止路径遍历
+    safe_path = os.path.basename(note.file_path)
+    file_path = os.path.join(NOTES_FILES_DIR, str(note_id), safe_path)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="PDF 文件不存在")
 

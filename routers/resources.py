@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional
+from typing import Literal, Optional
 from datetime import datetime, timezone
-from database import SessionLocal
+from database import get_db
 from models import Problem, ProblemResource
 import os
 import uuid
@@ -16,16 +16,8 @@ router = APIRouter(prefix="/resources", tags=["resources"])
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "uploads")
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 class ResourceCreate(BaseModel):
-    resource_type: str  # link, markdown, pdf, excel, image
+    resource_type: Literal["link", "markdown", "pdf", "excel", "image"]
     name: str
     url: Optional[str] = None
 
@@ -103,9 +95,14 @@ async def upload_file(problem_id: int, file: UploadFile = File(...), db: Session
     unique_name = f"{uuid.uuid4().hex}{ext}"
     file_path = os.path.join(UPLOAD_DIR, unique_name)
 
-    # 保存文件
+    # 保存文件（限制 10MB）
+    max_size = 10 * 1024 * 1024
     with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        content = file.file.read()
+        if len(content) > max_size:
+            os.remove(file_path)
+            raise HTTPException(status_code=400, detail="文件大小不能超过 10MB")
+        buffer.write(content)
 
     resource = ProblemResource(
         problem_id=problem_id,

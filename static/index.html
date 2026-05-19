@@ -6,6 +6,7 @@
 <title>LeetKit - LeetCode 工具箱</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 <style>
 :root {
     --bg: #f5f7fa;
@@ -658,7 +659,10 @@ tr:hover td { background: #f9fafb; }
 <div id="tab-lists" class="tab-content">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
         <h2>我的题单</h2>
-        <button class="btn btn-primary" onclick="openProblemListModal()">+ 创建题单</button>
+        <div style="display:flex;gap:8px;">
+            <button class="btn" onclick="openImportListModal()">导入题单</button>
+            <button class="btn btn-primary" onclick="openProblemListModal()">+ 创建题单</button>
+        </div>
     </div>
     <div id="problemListsContainer"></div>
     <div id="problemListDetail" style="display:none;">
@@ -669,14 +673,12 @@ tr:hover td { background: #f9fafb; }
             </div>
             <div style="display:flex; gap:8px;">
                 <button class="btn" onclick="addProblemToList()">添加题目</button>
-                <button class="btn" id="shareListBtn" onclick="toggleShareList()">分享</button>
+                <button class="btn" onclick="exportList()">导出</button>
+                <button class="btn btn-primary" onclick="reviewThisList()">复习此题单</button>
                 <button class="btn btn-danger" onclick="deleteCurrentList()">删除题单</button>
             </div>
-            <div id="shareUrlBox" style="display:none;margin-top:12px;padding:10px 14px;background:var(--primary-light);border-radius:8px;align-items:center;gap:8px;">
-                <input type="text" id="shareUrlInput" readonly style="flex:1;font-size:13px;cursor:pointer;" onclick="this.select()">
-                <button class="btn btn-sm btn-primary" onclick="copyShareUrl()">复制链接</button>
-            </div>
         </div>
+        <div id="listDetailStats" style="margin-bottom:16px;"></div>
         <div class="card">
             <div class="table-wrap">
                 <table id="listItemsTable">
@@ -765,11 +767,6 @@ tr:hover td { background: #f9fafb; }
         <div class="form-group"><label>状态</label><select id="pStatus"><option value="未做">未做</option><option value="在做">在做</option><option value="已解">已解</option><option value="需复盘">需复盘</option></select></div>
     </div>
     <div class="form-group"><label>分类</label><div class="checkbox-group" id="pCategories"></div></div>
-    <div class="form-group"><label>解题链接</label><input type="text" id="pSolutionUrl" placeholder="https://..."></div>
-    <div class="form-row">
-        <div class="form-group"><label>时间复杂度</label><input type="text" id="pTimeComplexity" placeholder="O(n)"></div>
-        <div class="form-group"><label>空间复杂度</label><input type="text" id="pSpaceComplexity" placeholder="O(1)"></div>
-    </div>
     <div class="form-group"><label>标签</label><div class="checkbox-group" id="pTags"></div></div>
     <div class="form-group"><label>笔记</label><textarea id="pNotes" rows="4" placeholder="解题思路、关键点、踩过的坑..."></textarea></div>
     <div class="modal-actions">
@@ -864,6 +861,23 @@ tr:hover td { background: #f9fafb; }
 </div>
 </div>
 
+<!-- Import List Modal -->
+<div class="modal-overlay" id="importListModal">
+<div class="modal" style="width:520px;max-width:95vw;">
+    <h2><span class="icon">📥</span>导入题单</h2>
+    <div class="form-group">
+        <label>粘贴题单数据</label>
+        <textarea id="importListData" rows="4" placeholder="粘贴从其他设备导出的题单字符串..." style="width:100%;font-family:monospace;font-size:13px;"></textarea>
+    </div>
+    <div id="importPreview" style="display:none;margin:12px 0;padding:12px;background:var(--bg);border-radius:8px;font-size:13px;"></div>
+    <div class="modal-actions">
+        <button class="btn" onclick="closeModal('importListModal')">取消</button>
+        <button class="btn" onclick="previewImportData()">预览</button>
+        <button class="btn btn-primary" onclick="doImportList()">导入</button>
+    </div>
+</div>
+</div>
+
 <!-- Problem Picker Modal (add to list) -->
 <div class="modal-overlay" id="problemPickerModal">
 <div class="modal" style="width:680px;max-width:95vw;">
@@ -882,6 +896,12 @@ tr:hover td { background: #f9fafb; }
             <option value="在做">在做</option>
             <option value="已解">已解</option>
             <option value="需复盘">需复盘</option>
+        </select>
+        <select id="pickerCategory" onchange="loadPickerResults()" style="width:110px;">
+            <option value="">所有分类</option>
+        </select>
+        <select id="pickerTag" onchange="loadPickerResults()" style="width:110px;">
+            <option value="">所有标签</option>
         </select>
         <span id="pickerCount" style="font-size:13px;color:var(--text2);">已选 0 道</span>
     </div>
@@ -995,7 +1015,7 @@ async function api(method, path, body) {
 function showToast(msg, type = 'success') {
     const el = document.getElementById('toast');
     const icons = { success: '✓', error: '✕', info: 'ℹ' };
-    el.innerHTML = `<span class="toast-icon">${icons[type] || icons.success}</span>${msg}`;
+    el.innerHTML = `<span class="toast-icon">${icons[type] || icons.success}</span>${escapeHtml(msg)}`;
     el.className = 'toast toast-' + type + ' show';
     clearTimeout(el._timeout);
     el._timeout = setTimeout(() => el.classList.remove('show'), 3000);
@@ -1060,10 +1080,10 @@ function populateFilterDropdowns() {
     const noteCatSelect = document.getElementById('noteFilterCategory');
     const noteTagSelect = document.getElementById('noteFilterTag');
 
-    catSelect.innerHTML = '<option value="">所有分类</option>' + categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-    tagSelect.innerHTML = '<option value="">所有标签</option>' + tags.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
-    noteCatSelect.innerHTML = '<option value="">所有分类</option>' + categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-    noteTagSelect.innerHTML = '<option value="">所有标签</option>' + tags.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+    catSelect.innerHTML = '<option value="">所有分类</option>' + categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    tagSelect.innerHTML = '<option value="">所有标签</option>' + tags.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+    noteCatSelect.innerHTML = '<option value="">所有分类</option>' + categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    noteTagSelect.innerHTML = '<option value="">所有标签</option>' + tags.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
 }
 
 // --- Problems ---
@@ -1118,19 +1138,19 @@ function renderProblemsTable(data) {
         return;
     }
     tbody.innerHTML = data.items.map(p => `
-        <tr class="clickable-row" onclick='showProblemDetail(${JSON.stringify(p)})'>
+        <tr class="clickable-row" onclick="showProblemDetailById(${p.id})">
             <td onclick="event.stopPropagation()"><input type="checkbox" class="problem-checkbox" value="${p.id}" onchange="updateBatchToolbar()"></td>
-            <td>${p.leetcode_slug ? `<a href="https://leetcode.cn/problems/${p.leetcode_slug}/" target="_blank" onclick="event.stopPropagation()"><strong>${p.leetcode_number}</strong></a>` : `<strong>${p.leetcode_number}</strong>`}</td>
-            <td>${p.title}${p.title_cn ? '<br><small style="color:var(--text2)">' + p.title_cn + '</small>' : ''}</td>
+            <td>${p.leetcode_slug ? `<a href="https://leetcode.cn/problems/${escapeHtml(p.leetcode_slug)}/" target="_blank" onclick="event.stopPropagation()"><strong>${escapeHtml(p.leetcode_number)}</strong></a>` : `<strong>${escapeHtml(p.leetcode_number)}</strong>`}</td>
+            <td>${escapeHtml(p.title)}${p.title_cn ? '<br><small style="color:var(--text2)">' + escapeHtml(p.title_cn) + '</small>' : ''}</td>
             <td>${difficultyBadge(p.difficulty)}</td>
             <td>${statusBadge(p.status)}</td>
-            <td>${p.categories.length ? p.categories.map(c => '<span class="cat-dot" style="background:' + (c.color||'var(--primary)') + '"></span>' + c.name).join(' ') : '-'}</td>
-            <td>${p.tags.map(t => '<span class="tag-badge">' + t.name + '</span>').join('') || '-'}</td>
+            <td>${p.categories.length ? p.categories.map(c => '<span class="cat-dot" style="background:' + escapeHtml(c.color||'var(--primary)') + '"></span>' + escapeHtml(c.name)).join(' ') : '-'}</td>
+            <td>${p.tags.map(t => '<span class="tag-badge">' + escapeHtml(t.name) + '</span>').join('') || '-'}</td>
             <td>${p.page_number ? 'P' + p.page_number : '-'}</td>
             <td onclick="event.stopPropagation()">
                 <div class="btn-group">
-                    <button class="btn btn-sm" onclick='openProblemModal(${JSON.stringify(p)})'>编辑</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteProblem(${p.id}, '${p.leetcode_number}')">删除</button>
+                    <button class="btn btn-sm" onclick="openProblemModalById(${p.id})">编辑</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteProblem(${p.id}, '${escapeHtml(p.leetcode_number)}')">删除</button>
                 </div>
             </td>
         </tr>
@@ -1267,9 +1287,6 @@ function openProblemModal(problem) {
     document.getElementById('pPageNumber').value = problem ? (problem.page_number || '') : '';
     document.getElementById('pDifficulty').value = problem ? problem.difficulty : 'EASY';
     document.getElementById('pStatus').value = problem ? problem.status : '未做';
-    document.getElementById('pSolutionUrl').value = problem ? (problem.solution_url || '') : '';
-    document.getElementById('pTimeComplexity').value = problem ? (problem.time_complexity || '') : '';
-    document.getElementById('pSpaceComplexity').value = problem ? (problem.space_complexity || '') : '';
     document.getElementById('pNotes').value = problem ? (problem.notes || '') : '';
 
     const selectedCats = problem ? problem.categories.map(c => c.id) : [];
@@ -1297,9 +1314,6 @@ async function saveProblem() {
         difficulty: document.getElementById('pDifficulty').value,
         status: document.getElementById('pStatus').value,
         category_ids,
-        solution_url: document.getElementById('pSolutionUrl').value.trim() || null,
-        time_complexity: document.getElementById('pTimeComplexity').value.trim() || null,
-        space_complexity: document.getElementById('pSpaceComplexity').value.trim() || null,
         notes: document.getElementById('pNotes').value.trim() || null,
         tag_ids,
     };
@@ -1322,6 +1336,15 @@ async function saveProblem() {
         loadDashboard();
     } catch (e) {
         showToast(e.message, 'error');
+    }
+}
+
+async function openProblemModalById(problemId) {
+    try {
+        const p = await api('GET', '/problems/' + problemId);
+        openProblemModal(p);
+    } catch (e) {
+        showToast('加载题目失败', 'error');
     }
 }
 
@@ -1348,14 +1371,14 @@ async function loadCategories() {
     el.innerHTML = categories.map(c => `
         <div class="list-item">
             <div class="list-item-info">
-                <div class="color-dot" style="background:${c.color || 'var(--primary)'}"></div>
-                <div><strong>${c.name}</strong>${c.description ? '<br><small style="color:var(--text2)">' + c.description + '</small>' : ''}</div>
+                <div class="color-dot" style="background:${escapeHtml(c.color || 'var(--primary)')}"></div>
+                <div><strong>${escapeHtml(c.name)}</strong>${c.description ? '<br><small style="color:var(--text2)">' + escapeHtml(c.description) + '</small>' : ''}</div>
             </div>
             <div style="display:flex;align-items:center;gap:12px;">
                 <span style="color:var(--text2);font-size:13px">${c.problem_count} 题</span>
                 <div class="btn-group">
-                    <button class="btn btn-sm" onclick='openCategoryModal(${JSON.stringify(c)})'>编辑</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteCategory(${c.id}, '${c.name}')">删除</button>
+                    <button class="btn btn-sm" onclick="openCategoryModalById(${c.id})">编辑</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteCategory(${c.id}, '${escapeHtml(c.name)}')">删除</button>
                 </div>
             </div>
         </div>
@@ -1369,6 +1392,11 @@ function openCategoryModal(cat) {
     document.getElementById('catDesc').value = cat ? (cat.description || '') : '';
     document.getElementById('catColor').value = cat ? (cat.color || '#4f46e5') : '#4f46e5';
     openModal('categoryModal');
+}
+
+function openCategoryModalById(catId) {
+    const cat = categories.find(c => c.id === catId);
+    if (cat) openCategoryModal(cat);
 }
 
 async function saveCategory() {
@@ -1418,13 +1446,13 @@ async function loadTags() {
     el.innerHTML = tags.map(t => `
         <div class="list-item">
             <div class="list-item-info">
-                <span class="tag-badge" style="background:${t.color || 'var(--primary-light)'};color:${t.color || 'var(--primary)'}">${t.name}</span>
+                <span class="tag-badge" style="background:${escapeHtml(t.color || 'var(--primary-light)')};color:${escapeHtml(t.color || 'var(--primary)')}">${escapeHtml(t.name)}</span>
             </div>
             <div style="display:flex;align-items:center;gap:12px;">
                 <span style="color:var(--text2);font-size:13px">${t.problem_count} 题</span>
                 <div class="btn-group">
-                    <button class="btn btn-sm" onclick='openTagModal(${JSON.stringify(t)})'>编辑</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteTag(${t.id}, '${t.name}')">删除</button>
+                    <button class="btn btn-sm" onclick="openTagModalById(${t.id})">编辑</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteTag(${t.id}, '${escapeHtml(t.name)}')">删除</button>
                 </div>
             </div>
         </div>
@@ -1437,6 +1465,11 @@ function openTagModal(tag) {
     document.getElementById('tagName').value = tag ? tag.name : '';
     document.getElementById('tagColor').value = tag ? (tag.color || '#4f46e5') : '#4f46e5';
     openModal('tagModal');
+}
+
+function openTagModalById(tagId) {
+    const tag = allTags.find(t => t.id === tagId);
+    if (tag) openTagModal(tag);
 }
 
 async function saveTag() {
@@ -1639,8 +1672,8 @@ async function loadDashboard() {
     const tbody = document.querySelector('#recentTable tbody');
     tbody.innerHTML = recent.map(p => `
         <tr>
-            <td><strong>${p.leetcode_number}</strong></td>
-            <td>${p.title}${p.title_cn ? '<br><small style="color:var(--text2)">' + p.title_cn + '</small>' : ''}</td>
+            <td><strong>${escapeHtml(p.leetcode_number)}</strong></td>
+            <td>${escapeHtml(p.title)}${p.title_cn ? '<br><small style="color:var(--text2)">' + escapeHtml(p.title_cn) + '</small>' : ''}</td>
             <td>${difficultyBadge(p.difficulty)}</td>
             <td>${statusBadge(p.status)}</td>
             <td>${p.page_number ? 'P' + p.page_number : '-'}</td>
@@ -1905,15 +1938,15 @@ function renderNotesTable(data) {
         return;
     }
     tbody.innerHTML = data.items.map(n => `
-        <tr class="clickable-row" onclick='showNoteDetail(${JSON.stringify(n)})'>
-            <td><strong>${n.title}</strong></td>
+        <tr class="clickable-row" onclick="showNoteDetailById(${n.id})">
+            <td><strong>${escapeHtml(n.title)}</strong></td>
             <td>${n.page_number ? 'P' + n.page_number : '-'}</td>
-            <td>${n.categories.length ? n.categories.map(c => '<span class="cat-dot" style="background:' + (c.color||'var(--primary)') + '"></span>' + c.name).join(' ') : '-'}</td>
-            <td>${n.tags.map(t => '<span class="tag-badge">' + t.name + '</span>').join('') || '-'}</td>
-            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${n.content || '-'}</td>
+            <td>${n.categories.length ? n.categories.map(c => '<span class="cat-dot" style="background:' + escapeHtml(c.color||'var(--primary)') + '"></span>' + escapeHtml(c.name)).join(' ') : '-'}</td>
+            <td>${n.tags.map(t => '<span class="tag-badge">' + escapeHtml(t.name) + '</span>').join('') || '-'}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(n.content || '-')}</td>
             <td onclick="event.stopPropagation()">
                 <div class="btn-group">
-                    <button class="btn btn-sm" onclick='openNoteModal(${JSON.stringify(n)})'>编辑</button>
+                    <button class="btn btn-sm" onclick="openNoteModalById(${n.id})">编辑</button>
                     <button class="btn btn-sm btn-danger" onclick="deleteNote(${n.id})">删除</button>
                 </div>
             </td>
@@ -2099,26 +2132,25 @@ function renderReviewCard(data) {
     document.getElementById('btnPrevProblem').disabled = (reviewHistoryStack.length === 0);
 
     // Prepare answer content
+    let answerHtml = '';
     if (p.notes) {
-        document.getElementById('reviewNotes').innerHTML = '<strong>解题笔记：</strong><br>' + renderMarkdown(p.notes);
-    } else {
-        document.getElementById('reviewNotes').innerHTML = `
-            <div style="text-align:center;padding:12px;">
-                <div style="color:var(--text2);margin-bottom:12px;">暂无笔记</div>
-                ${p.leetcode_slug ? `<a href="https://leetcode.cn/problems/${p.leetcode_slug}/" target="_blank" class="btn btn-primary" style="display:inline-block;">去 LeetCode 做题</a>` : ''}
-            </div>`;
+        answerHtml += '<strong>解题笔记：</strong><br>' + renderMarkdown(p.notes);
     }
-
-    let complexity = [];
-    if (p.time_complexity) complexity.push('时间: ' + p.time_complexity);
-    if (p.space_complexity) complexity.push('空间: ' + p.space_complexity);
-    document.getElementById('reviewComplexity').textContent = complexity.length ? '复杂度 — ' + complexity.join(' / ') : '';
-
-    if (p.solution_url) {
-        document.getElementById('reviewUrl').innerHTML = '<a href="' + p.solution_url + '" target="_blank">查看解题链接</a>';
-    } else {
-        document.getElementById('reviewUrl').innerHTML = '';
+    // Show useful meta info
+    const metaItems = [];
+    if (p.categories && p.categories.length) metaItems.push('分类: ' + p.categories.map(c => '<span class="cat-dot" style="background:' + escapeHtml(c.color||'var(--primary)') + '"></span>' + escapeHtml(c.name)).join(' '));
+    if (p.tags && p.tags.length) metaItems.push('标签: ' + p.tags.map(t => '<span class="tag-badge">' + escapeHtml(t.name) + '</span>').join(''));
+    if (metaItems.length) {
+        answerHtml += (p.notes ? '<hr style="margin:10px 0;border:none;border-top:1px solid var(--border);">' : '');
+        answerHtml += metaItems.map(m => `<div style="font-size:13px;margin-bottom:4px;">${m}</div>`).join('');
     }
+    if (!p.notes && p.leetcode_slug) {
+        answerHtml += `<div style="text-align:center;margin-top:12px;"><a href="https://leetcode.cn/problems/${escapeHtml(p.leetcode_slug)}/" target="_blank" class="btn btn-primary" style="display:inline-block;">去 LeetCode 做题</a></div>`;
+    }
+    document.getElementById('reviewNotes').innerHTML = answerHtml;
+
+    document.getElementById('reviewComplexity').textContent = '';
+    document.getElementById('reviewUrl').innerHTML = '';
 
     // Load resources
     loadReviewResources(p.id);
@@ -2265,9 +2297,9 @@ async function loadReviewResources(problemId) {
         list.innerHTML = resources.map(r => {
             const icon = icons[r.resource_type] || '📁';
             if (r.resource_type === 'link') {
-                return `<a href="${r.url}" target="_blank" class="btn" style="padding:6px 12px;font-size:13px;">${icon} ${r.name}</a>`;
+                return `<a href="${safeHref(r.url)}" target="_blank" class="btn" style="padding:6px 12px;font-size:13px;">${icon} ${escapeHtml(r.name)}</a>`;
             } else {
-                return `<a href="/api/resources/${r.id}/download" target="_blank" class="btn" style="padding:6px 12px;font-size:13px;">${icon} ${r.name}</a>`;
+                return `<a href="/api/resources/${r.id}/download" target="_blank" class="btn" style="padding:6px 12px;font-size:13px;">${icon} ${escapeHtml(r.name)}</a>`;
             }
         }).join('');
     } catch (e) {
@@ -2306,12 +2338,25 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+function safeHref(url) {
+    if (!url) return '#';
+    try {
+        const u = new URL(url);
+        if (u.protocol === 'http:' || u.protocol === 'https:') return url;
+    } catch (e) {}
+    return '#';
+}
+
 function renderMarkdown(text) {
     if (!text) return '';
     if (typeof marked !== 'undefined' && marked.parse) {
-        return marked.parse(text);
+        const raw = marked.parse(text);
+        if (typeof DOMPurify !== 'undefined') {
+            return DOMPurify.sanitize(raw);
+        }
+        return raw;
     }
-    return text.replace(/\n/g, '<br>');
+    return escapeHtml(text).replace(/\n/g, '<br>');
 }
 
 async function showProblemDetailById(problemId) {
@@ -2324,17 +2369,32 @@ async function showProblemDetailById(problemId) {
 }
 
 function showProblemDetail(p) {
+    window._currentDetailProblem = p;
     document.getElementById('detailTitle').textContent = `#${p.leetcode_number} ${p.title}`;
     let html = '';
-    if (p.title_cn) html += `<div class="detail-field"><div class="detail-label">中文标题</div><div class="detail-value">${p.title_cn}</div></div>`;
-    html += `<div class="detail-field"><div class="detail-label">难度 / 状态</div><div class="detail-value">${difficultyBadge(p.difficulty)} ${statusBadge(p.status)}</div></div>`;
-    if (p.leetcode_slug) html += `<div class="detail-field"><div class="detail-label">LeetCode 链接</div><div class="detail-value"><a href="https://leetcode.cn/problems/${p.leetcode_slug}/" target="_blank">打开题目 →</a></div></div>`;
+    if (p.title_cn) html += `<div class="detail-field"><div class="detail-label">中文标题</div><div class="detail-value">${escapeHtml(p.title_cn)}</div></div>`;
+
+    // Inline editable difficulty + status
+    html += `<div class="detail-field"><div class="detail-label">难度 / 状态</div><div class="detail-value" style="display:flex;gap:8px;align-items:center;">
+        <select id="detailDifficulty" onchange="inlineUpdateProblem('difficulty', this.value)" style="width:auto;padding:2px 6px;font-size:12px;">
+            <option value="EASY"${p.difficulty==='EASY'?' selected':''}>简单</option>
+            <option value="MEDIUM"${p.difficulty==='MEDIUM'?' selected':''}>中等</option>
+            <option value="HARD"${p.difficulty==='HARD'?' selected':''}>困难</option>
+        </select>
+        <select id="detailStatus" onchange="inlineUpdateProblem('status', this.value)" style="width:auto;padding:2px 6px;font-size:12px;">
+            <option value="未做"${p.status==='未做'?' selected':''}>未做</option>
+            <option value="在做"${p.status==='在做'?' selected':''}>在做</option>
+            <option value="已解"${p.status==='已解'?' selected':''}>已解</option>
+            <option value="需复盘"${p.status==='需复盘'?' selected':''}>需复盘</option>
+        </select>
+    </div></div>`;
+
+    if (p.leetcode_slug) html += `<div class="detail-field"><div class="detail-label">LeetCode 链接</div><div class="detail-value"><a href="https://leetcode.cn/problems/${escapeHtml(p.leetcode_slug)}/" target="_blank">打开题目 →</a></div></div>`;
     if (p.page_number) html += `<div class="detail-field"><div class="detail-label">笔记页码</div><div class="detail-value">P${p.page_number}</div></div>`;
-    if (p.categories.length) html += `<div class="detail-field"><div class="detail-label">分类</div><div class="detail-value">${p.categories.map(c => '<span class="cat-dot" style="background:' + (c.color||'var(--primary)') + '"></span>' + c.name).join(' ')}</div></div>`;
-    if (p.tags.length) html += `<div class="detail-field"><div class="detail-label">标签</div><div class="detail-value">${p.tags.map(t => '<span class="tag-badge">' + t.name + '</span>').join('')}</div></div>`;
+    if (p.categories.length) html += `<div class="detail-field"><div class="detail-label">分类</div><div class="detail-value">${p.categories.map(c => '<span class="cat-dot" style="background:' + escapeHtml(c.color||'var(--primary)') + '"></span>' + escapeHtml(c.name)).join(' ')}</div></div>`;
+    if (p.tags.length) html += `<div class="detail-field"><div class="detail-label">标签</div><div class="detail-value">${p.tags.map(t => '<span class="tag-badge">' + escapeHtml(t.name) + '</span>').join('')}</div></div>`;
     if (p.ac_rate) html += `<div class="detail-field"><div class="detail-label">通过率</div><div class="detail-value">${p.ac_rate.toFixed(1)}%</div></div>`;
-    if (p.solution_url) html += `<div class="detail-field"><div class="detail-label">解题链接</div><div class="detail-value"><a href="${p.solution_url}" target="_blank">${p.solution_url}</a></div></div>`;
-    if (p.time_complexity || p.space_complexity) html += `<div class="detail-field"><div class="detail-label">复杂度</div><div class="detail-value">时间: ${p.time_complexity||'-'} / 空间: ${p.space_complexity||'-'}</div></div>`;
+
     if (p.notes) html += `<div class="detail-field"><div class="detail-label">笔记</div><div class="detail-value detail-md">${renderMarkdown(p.notes)}</div></div>`;
 
     // 资源区域
@@ -2345,7 +2405,10 @@ function showProblemDetail(p) {
         <button class="btn btn-sm" onclick="uploadResourceFile(${p.id})">+ 上传文件</button>
     </div></div>`;
 
-    html += `<div class="modal-actions"><button class="btn" onclick="closeModal('detailModal')">关闭</button></div>`;
+    html += `<div class="modal-actions">
+        <button class="btn" onclick="closeModal('detailModal')">关闭</button>
+        <button class="btn btn-primary" onclick="closeModal('detailModal');openProblemModalById(${p.id})">编辑</button>
+    </div>`;
     document.getElementById('detailContent').innerHTML = html;
     openModal('detailModal');
 
@@ -2353,17 +2416,47 @@ function showProblemDetail(p) {
     loadProblemResources(p.id);
 }
 
+async function inlineUpdateProblem(field, value) {
+    const p = window._currentDetailProblem;
+    if (!p) return;
+    try {
+        await api('PUT', '/problems/' + p.id, { [field]: value });
+        p[field] = value; // update local cache
+        showToast('已更新');
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
 function showNoteDetail(n) {
     document.getElementById('detailTitle').textContent = n.title;
     let html = '';
     if (n.page_number) html += `<div class="detail-field"><div class="detail-label">笔记页码</div><div class="detail-value">P${n.page_number}</div></div>`;
-    if (n.categories.length) html += `<div class="detail-field"><div class="detail-label">分类</div><div class="detail-value">${n.categories.map(c => '<span class="cat-dot" style="background:' + (c.color||'var(--primary)') + '"></span>' + c.name).join(' ')}</div></div>`;
-    if (n.tags.length) html += `<div class="detail-field"><div class="detail-label">标签</div><div class="detail-value">${n.tags.map(t => '<span class="tag-badge">' + t.name + '</span>').join('')}</div></div>`;
+    if (n.categories.length) html += `<div class="detail-field"><div class="detail-label">分类</div><div class="detail-value">${n.categories.map(c => '<span class="cat-dot" style="background:' + escapeHtml(c.color||'var(--primary)') + '"></span>' + escapeHtml(c.name)).join(' ')}</div></div>`;
+    if (n.tags.length) html += `<div class="detail-field"><div class="detail-label">标签</div><div class="detail-value">${n.tags.map(t => '<span class="tag-badge">' + escapeHtml(t.name) + '</span>').join('')}</div></div>`;
     if (n.content) html += `<div class="detail-field"><div class="detail-label">内容</div><div class="detail-value detail-md">${renderMarkdown(n.content)}</div></div>`;
     if (n.file_path) html += `<div class="detail-field"><div class="detail-label">PDF 附件</div><div class="detail-value"><a href="/api/notes/${n.id}/download-pdf" target="_blank">下载 PDF</a></div></div>`;
     html += `<div class="modal-actions"><button class="btn" onclick="closeModal('detailModal')">关闭</button></div>`;
     document.getElementById('detailContent').innerHTML = html;
     openModal('detailModal');
+}
+
+async function showNoteDetailById(noteId) {
+    try {
+        const n = await api('GET', '/notes/' + noteId);
+        showNoteDetail(n);
+    } catch (e) {
+        showToast('加载笔记详情失败', 'error');
+    }
+}
+
+async function openNoteModalById(noteId) {
+    try {
+        const n = await api('GET', '/notes/' + noteId);
+        openNoteModal(n);
+    } catch (e) {
+        showToast('加载笔记失败', 'error');
+    }
 }
 
 // ========== 资源管理 ==========
@@ -2392,8 +2485,8 @@ async function loadProblemResources(problemId) {
             <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">
                 <span>${RESOURCE_ICONS[r.resource_type] || '📄'}</span>
                 ${r.url
-                    ? `<a href="${r.url}" target="_blank" style="flex:1;color:var(--primary);text-decoration:none;">${r.name}</a>`
-                    : `<a href="/api/resources/${r.id}/download" target="_blank" style="flex:1;color:var(--primary);text-decoration:none;">${r.name}</a>`
+                    ? `<a href="${safeHref(r.url)}" target="_blank" style="flex:1;color:var(--primary);text-decoration:none;">${escapeHtml(r.name)}</a>`
+                    : `<a href="/api/resources/${r.id}/download" target="_blank" style="flex:1;color:var(--primary);text-decoration:none;">${escapeHtml(r.name)}</a>`
                 }
                 <button class="btn btn-sm btn-danger" onclick="deleteResource(${r.id})">删除</button>
             </div>
@@ -2523,8 +2616,8 @@ function renderSearchResults(data) {
         html += data.problems.map(p => `
             <div class="search-result-item" onclick="switchTab('problems');hideSearchPanel();">
                 <span class="search-result-type">题目</span>
-                <span><strong>${p.leetcode_number}</strong> ${p.title}</span>
-                ${p.title_cn ? `<span style="color:var(--text2);font-size:12px;">${p.title_cn}</span>` : ''}
+                <span><strong>${escapeHtml(p.leetcode_number)}</strong> ${escapeHtml(p.title)}</span>
+                ${p.title_cn ? `<span style="color:var(--text2);font-size:12px;">${escapeHtml(p.title_cn)}</span>` : ''}
             </div>
         `).join('');
     }
@@ -2533,8 +2626,8 @@ function renderSearchResults(data) {
         html += data.notes.map(n => `
             <div class="search-result-item" onclick="switchTab('notes');hideSearchPanel();">
                 <span class="search-result-type">笔记</span>
-                <span>${n.title}</span>
-                ${n.snippet ? `<span style="color:var(--text2);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;">${n.snippet}</span>` : ''}
+                <span>${escapeHtml(n.title)}</span>
+                ${n.snippet ? `<span style="color:var(--text2);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;">${escapeHtml(n.snippet)}</span>` : ''}
             </div>
         `).join('');
     }
@@ -2543,7 +2636,7 @@ function renderSearchResults(data) {
         html += data.problem_lists.map(pl => `
             <div class="search-result-item" onclick="switchTab('lists');hideSearchPanel();">
                 <span class="search-result-type">题单</span>
-                <span>${pl.name}</span>
+                <span>${escapeHtml(pl.name)}</span>
             </div>
         `).join('');
     }
@@ -2575,13 +2668,28 @@ function renderProblemLists(lists) {
         el.innerHTML = '<div class="empty"><p>暂无题单</p><p>点击上方"创建题单"开始</p></div>';
         return;
     }
-    el.innerHTML = lists.map(l => `
+    el.innerHTML = lists.map(l => {
+        const pct = l.item_count > 0 ? Math.round((l.solved_count / l.item_count) * 100) : 0;
+        const diffParts = [];
+        if (l.difficulty_counts.EASY) diffParts.push(`<span style="color:var(--success)">简单 ${l.difficulty_counts.EASY}</span>`);
+        if (l.difficulty_counts.MEDIUM) diffParts.push(`<span style="color:var(--warning)">中等 ${l.difficulty_counts.MEDIUM}</span>`);
+        if (l.difficulty_counts.HARD) diffParts.push(`<span style="color:var(--danger)">困难 ${l.difficulty_counts.HARD}</span>`);
+        return `
         <div class="list-card" onclick="openProblemList(${l.id})">
-            <div class="list-card-title">${l.name}</div>
-            ${l.description ? `<div class="list-card-desc">${l.description}</div>` : ''}
-            <div class="list-card-meta">${l.item_count} 道题 · 创建于 ${new Date(l.created_at).toLocaleDateString('zh-CN')}</div>
-        </div>
-    `).join('');
+            <div class="list-card-title">${escapeHtml(l.name)}</div>
+            ${l.description ? `<div class="list-card-desc">${escapeHtml(l.description)}</div>` : ''}
+            <div style="margin:8px 0;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                    <span style="font-size:12px;color:var(--text2);">已解 ${l.solved_count}/${l.item_count}</span>
+                    <span style="font-size:12px;font-weight:600;color:var(--primary);">${pct}%</span>
+                </div>
+                <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
+                    <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--success),var(--primary));border-radius:3px;transition:width 0.3s;"></div>
+                </div>
+            </div>
+            <div class="list-card-meta">${diffParts.join(' · ') || l.item_count + ' 道题'}</div>
+        </div>`;
+    }).join('');
 }
 
 async function openProblemList(id) {
@@ -2592,12 +2700,50 @@ async function openProblemList(id) {
         document.getElementById('listDetailTitle').textContent = list.name;
         document.getElementById('problemListsContainer').style.display = 'none';
         document.getElementById('problemListDetail').style.display = 'block';
-        document.getElementById('shareUrlBox').style.display = 'none';
-        document.getElementById('shareListBtn').textContent = '分享';
+        renderListStats(list.items);
         renderListItems(list.items);
     } catch (e) {
         showToast('加载题单详情失败', 'error');
     }
+}
+
+function renderListStats(items) {
+    const el = document.getElementById('listDetailStats');
+    if (!items || items.length === 0) { el.innerHTML = ''; return; }
+    const total = items.length;
+    const statusCounts = {};
+    const diffCounts = {};
+    items.forEach(item => {
+        const s = item.problem.status || '未做';
+        const d = item.problem.difficulty || 'EASY';
+        statusCounts[s] = (statusCounts[s] || 0) + 1;
+        diffCounts[d] = (diffCounts[d] || 0) + 1;
+    });
+    const solved = (statusCounts['已解'] || 0) + (statusCounts['需复盘'] || 0);
+    const pct = Math.round((solved / total) * 100);
+    el.innerHTML = `
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <div style="display:flex;gap:16px;font-size:13px;">
+                    <span>总计 <strong>${total}</strong></span>
+                    <span style="color:var(--text2)">未做 ${statusCounts['未做']||0}</span>
+                    <span style="color:var(--info)">在做 ${statusCounts['在做']||0}</span>
+                    <span style="color:var(--success)">已解 ${statusCounts['已解']||0}</span>
+                    <span style="color:var(--warning)">需复盘 ${statusCounts['需复盘']||0}</span>
+                </div>
+                <div style="display:flex;gap:12px;font-size:12px;">
+                    <span style="color:var(--success)">简单 ${diffCounts['EASY']||0}</span>
+                    <span style="color:var(--warning)">中等 ${diffCounts['MEDIUM']||0}</span>
+                    <span style="color:var(--danger)">困难 ${diffCounts['HARD']||0}</span>
+                </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+                <div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden;">
+                    <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--success),var(--primary));border-radius:4px;transition:width 0.3s;"></div>
+                </div>
+                <span style="font-size:13px;font-weight:600;color:var(--primary);min-width:40px;">${pct}%</span>
+            </div>
+        </div>`;
 }
 
 function renderListItems(items) {
@@ -2607,14 +2753,14 @@ function renderListItems(items) {
         return;
     }
     tbody.innerHTML = items.map((item, idx) => `
-        <tr>
+        <tr class="clickable-row" onclick="showProblemDetailById(${item.problem_id})">
             <td>${idx + 1}</td>
-            <td><strong>${item.problem.leetcode_number}</strong></td>
-            <td>${item.problem.title}</td>
+            <td>${item.problem.leetcode_slug ? `<a href="https://leetcode.cn/problems/${escapeHtml(item.problem.leetcode_slug)}/" target="_blank" onclick="event.stopPropagation()"><strong>${escapeHtml(item.problem.leetcode_number)}</strong></a>` : `<strong>${escapeHtml(item.problem.leetcode_number)}</strong>`}</td>
+            <td>${escapeHtml(item.problem.title)}${item.problem.title_cn ? '<br><small style="color:var(--text2)">' + escapeHtml(item.problem.title_cn) + '</small>' : ''}</td>
             <td>${difficultyBadge(item.problem.difficulty)}</td>
             <td>${statusBadge(item.problem.status)}</td>
             <td>${item.note || '-'}</td>
-            <td>
+            <td onclick="event.stopPropagation()">
                 <button class="btn btn-sm btn-danger" onclick="removeItemFromList(${item.id})">移除</button>
             </td>
         </tr>
@@ -2625,8 +2771,6 @@ function backToLists() {
     currentListId = null;
     document.getElementById('problemListsContainer').style.display = 'block';
     document.getElementById('problemListDetail').style.display = 'none';
-    document.getElementById('shareUrlBox').style.display = 'none';
-    document.getElementById('shareListBtn').textContent = '分享';
     loadProblemLists();
 }
 
@@ -2669,28 +2813,108 @@ function encodeShareData(listDetail) {
         .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function toggleShareList() {
-    const box = document.getElementById('shareUrlBox');
-    if (box.style.display === 'flex') {
-        box.style.display = 'none';
-        document.getElementById('shareListBtn').textContent = '分享';
-        return;
-    }
-    const input = document.getElementById('shareUrlInput');
-    input.value = window.location.origin + '/shared#' + encodeShareData(window._currentListDetail);
-    box.style.display = 'flex';
-    document.getElementById('shareListBtn').textContent = '取消分享';
-    input.select();
+function exportList() {
+    if (!window._currentListDetail) return;
+    const data = encodeShareData(window._currentListDetail);
+    navigator.clipboard.writeText(data).then(() => {
+        showToast('题单数据已复制到剪贴板');
+    }).catch(() => {
+        // fallback: select in a temporary textarea
+        const ta = document.createElement('textarea');
+        ta.value = data;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('题单数据已复制到剪贴板');
+    });
 }
 
-function copyShareUrl() {
-    const input = document.getElementById('shareUrlInput');
-    input.select();
-    navigator.clipboard.writeText(input.value).then(() => {
-        showToast('链接已复制到剪贴板');
-    }).catch(() => {
-        showToast('复制失败，请手动选中链接', 'error');
-    });
+let _importParsedData = null;
+
+function openImportListModal() {
+    document.getElementById('importListData').value = '';
+    document.getElementById('importPreview').style.display = 'none';
+    _importParsedData = null;
+    openModal('importListModal');
+}
+
+async function previewImportData() {
+    const raw = document.getElementById('importListData').value.trim();
+    if (!raw) { showToast('请粘贴题单数据', 'error'); return; }
+    _importParsedData = null;
+    try {
+        const json = decodeURIComponent(escape(atob(raw.replace(/-/g, '+').replace(/_/g, '/'))));
+        const data = JSON.parse(json);
+        if (!data.n || !Array.isArray(data.q)) throw new Error('格式错误');
+        _importParsedData = data;
+
+        // Match problems by leetcode_number
+        let matched = 0, notFound = 0;
+        const notFoundNums = [];
+        for (const num of data.q) {
+            try {
+                const res = await api('GET', '/problems?q=' + encodeURIComponent(num) + '&page_size=5');
+                const found = res.items.some(p => p.leetcode_number === num);
+                if (found) matched++;
+                else { notFound++; notFoundNums.push(num); }
+            } catch { notFound++; notFoundNums.push(num); }
+        }
+
+        const preview = document.getElementById('importPreview');
+        preview.style.display = 'block';
+        preview.innerHTML = `
+            <div style="font-weight:600;margin-bottom:6px;">${escapeHtml(data.n)}</div>
+            ${data.d ? `<div style="color:var(--text2);margin-bottom:8px;">${escapeHtml(data.d)}</div>` : ''}
+            <div>共 ${data.q.length} 道题：<span style="color:var(--success)">${matched} 道可匹配</span>${notFound > 0 ? `，<span style="color:var(--danger)">${notFound} 道未找到</span>` : ''}</div>
+            ${notFoundNums.length > 0 ? `<div style="margin-top:4px;color:var(--text2);font-size:12px;">未找到: ${notFoundNums.slice(0, 20).join(', ')}${notFoundNums.length > 20 ? '...' : ''}</div>` : ''}
+        `;
+    } catch (e) {
+        showToast('数据格式无效', 'error');
+        document.getElementById('importPreview').style.display = 'none';
+        _importParsedData = null;
+    }
+}
+
+async function doImportList() {
+    // Parse raw string if preview wasn't used
+    if (!_importParsedData) {
+        const raw = document.getElementById('importListData').value.trim();
+        if (!raw) { showToast('请粘贴题单数据', 'error'); return; }
+        try {
+            const json = decodeURIComponent(escape(atob(raw.replace(/-/g, '+').replace(/_/g, '/'))));
+            const data = JSON.parse(json);
+            if (!data.n || !Array.isArray(data.q)) throw new Error('格式错误');
+            _importParsedData = data;
+        } catch { showToast('数据格式无效', 'error'); return; }
+    }
+    try {
+        // Create the list
+        const list = await api('POST', '/problem-lists', {
+            name: _importParsedData.n,
+            description: _importParsedData.d || null,
+        });
+
+        // Match problem IDs
+        const problemIds = [];
+        for (const num of _importParsedData.q) {
+            try {
+                const res = await api('GET', '/problems?q=' + encodeURIComponent(num) + '&page_size=5');
+                const found = res.items.find(p => p.leetcode_number === num);
+                if (found) problemIds.push(found.id);
+            } catch { /* skip */ }
+        }
+
+        if (problemIds.length > 0) {
+            await api('POST', '/problem-lists/' + list.id + '/items/batch', { problem_ids: problemIds });
+        }
+
+        showToast(`题单"${list.name}"已导入，${problemIds.length} 道题`);
+        closeModal('importListModal');
+        loadProblemLists();
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
 }
 
 async function deleteCurrentList() {
@@ -2705,16 +2929,51 @@ async function deleteCurrentList() {
     }
 }
 
+async function reviewThisList() {
+    if (!window._currentListDetail) return;
+    const items = window._currentListDetail.items;
+    if (!items || items.length === 0) { showToast('题单为空', 'error'); return; }
+    const problemIds = items.map(i => i.problem_id);
+    try {
+        const next = await api('GET', `/reviews/next?problem_ids=${problemIds.join(',')}&daily_limit=50`);
+        if (!next || !next.problem) {
+            showToast('题单中没有待复习的题目');
+            return;
+        }
+        // Switch to review tab and load this problem
+        currentReviewProblem = next.problem;
+        currentReviewData = next;
+        reviewHistoryStack = [];
+        switchTab('review');
+        renderReviewCard(next);
+        document.getElementById('reviewEmpty').style.display = 'none';
+        document.getElementById('reviewContent').style.display = 'block';
+        showToast(`开始复习题单"${window._currentListDetail.name}"`);
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
 function addProblemToList() {
     pickerPage = 1;
     selectedPickerIds = new Set();
     document.getElementById('pickerSearch').value = '';
     document.getElementById('pickerDifficulty').value = '';
     document.getElementById('pickerStatus').value = '';
+    document.getElementById('pickerCategory').value = '';
+    document.getElementById('pickerTag').value = '';
     document.getElementById('pickerCount').textContent = '已选 0 道';
     document.getElementById('pickerSubmitBtn').disabled = true;
+    populatePickerFilters();
     openModal('problemPickerModal');
     loadPickerResults();
+}
+
+function populatePickerFilters() {
+    const catSelect = document.getElementById('pickerCategory');
+    const tagSelect = document.getElementById('pickerTag');
+    catSelect.innerHTML = '<option value="">所有分类</option>' + categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    tagSelect.innerHTML = '<option value="">所有标签</option>' + tags.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
 }
 
 function debouncePickerSearch() {
@@ -2731,6 +2990,10 @@ async function loadPickerResults(page) {
     if (diff) params.set('difficulty', diff);
     const status = document.getElementById('pickerStatus').value;
     if (status) params.set('status', status);
+    const cat = document.getElementById('pickerCategory').value;
+    if (cat) params.set('category_id', cat);
+    const tag = document.getElementById('pickerTag').value;
+    if (tag) params.set('tag_id', tag);
 
     try {
         const data = await api('GET', '/problems?' + params.toString());
@@ -2881,11 +3144,11 @@ function renderLcSearchResults() {
     }
     el.innerHTML = lcSearchResults.map(q => `
         <div class="lc-result-item" style="display:grid; grid-template-columns:30px 60px 1fr 80px 70px; gap:12px; align-items:center;">
-            <input type="checkbox" ${selectedLcProblems.has(q.frontendQuestionId) ? 'checked' : ''} onchange="toggleLcSelect('${q.frontendQuestionId}')">
-            <span style="font-weight:600; color:var(--primary);">${q.frontendQuestionId}</span>
+            <input type="checkbox" ${selectedLcProblems.has(q.frontendQuestionId) ? 'checked' : ''} onchange="toggleLcSelect('${escapeHtml(q.frontendQuestionId)}')">
+            <span style="font-weight:600; color:var(--primary);">${escapeHtml(q.frontendQuestionId)}</span>
             <div>
-                <div style="font-size:14px;">${q.title}</div>
-                ${q.titleCn ? `<div style="font-size:12px; color:var(--text2); margin-top:2px;">${q.titleCn}</div>` : ''}
+                <div style="font-size:14px;">${escapeHtml(q.title)}</div>
+                ${q.titleCn ? `<div style="font-size:12px; color:var(--text2); margin-top:2px;">${escapeHtml(q.titleCn)}</div>` : ''}
             </div>
             <span>${difficultyBadge(q.difficulty === 'Easy' ? 'EASY' : q.difficulty === 'Medium' ? 'MEDIUM' : 'HARD')}</span>
             <span style="font-size:12px; color:var(--text2); text-align:right;">${q.acRate ? q.acRate.toFixed(1) + '%' : '-'}</span>

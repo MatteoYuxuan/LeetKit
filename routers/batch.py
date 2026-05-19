@@ -3,21 +3,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional
+from typing import Literal, Optional
 from io import StringIO
 import csv
-from database import SessionLocal
+from database import get_db
 from models import Problem, Note, Category, Tag
 
 router = APIRouter(prefix="/batch", tags=["batch"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 class BatchIds(BaseModel):
@@ -26,7 +18,7 @@ class BatchIds(BaseModel):
 
 class BatchStatusUpdate(BaseModel):
     ids: list[int]
-    status: str
+    status: Literal["未做", "在做", "已解", "需复盘"]
 
 
 class BatchCategoryUpdate(BaseModel):

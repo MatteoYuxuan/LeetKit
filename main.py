@@ -1,10 +1,15 @@
+import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from sqlalchemy.exc import IntegrityError
 from database import engine, Base, SessionLocal
 from models import Category
 from routers import problems, categories, tags, stats, import_export, notes, reviews, search, problem_lists, leetcode, batch, resources, checkin
+
+logging.basicConfig(level=logging.WARNING)
 
 DEFAULT_CATEGORIES = [
     "数组", "字符串", "链表", "栈", "队列", "哈希表",
@@ -83,16 +88,33 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
-        if db.query(Category).count() == 0:
-            for name in DEFAULT_CATEGORIES:
+        for name in DEFAULT_CATEGORIES:
+            if not db.query(Category).filter(Category.name == name).first():
                 db.add(Category(name=name))
-            db.commit()
+        db.commit()
     finally:
         db.close()
     yield
 
 
 app = FastAPI(title="LeetKit", lifespan=lifespan)
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError):
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "数据冲突，请检查输入是否重复"},
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logging.exception("Unhandled exception")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "服务器内部错误"},
+    )
 
 app.include_router(problems.router, prefix="/api")
 app.include_router(categories.router, prefix="/api")
@@ -112,11 +134,6 @@ app.include_router(checkin.router, prefix="/api")
 @app.get("/")
 def serve_frontend():
     return FileResponse("static/index.html")
-
-
-@app.get("/shared")
-def serve_shared():
-    return FileResponse("static/shared.html")
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")

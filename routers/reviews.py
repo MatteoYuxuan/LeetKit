@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from database import SessionLocal
+from database import get_db
 from models import Problem, ReviewRecord, ReviewSchedule
 import crud
 import schemas
@@ -8,17 +8,17 @@ import schemas
 router = APIRouter(tags=["reviews"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 @router.get("/reviews/next")
-def get_next_review(daily_limit: int = 3, exclude_id: int | None = None, db: Session = Depends(get_db)):
-    problem = crud.get_next_review(db, daily_limit=daily_limit, exclude_id=exclude_id)
+def get_next_review(daily_limit: int = 3, exclude_id: int | None = None, problem_ids: str | None = None, db: Session = Depends(get_db)):
+    if daily_limit < 1 or daily_limit > 50:
+        daily_limit = 3
+    parsed_ids = None
+    if problem_ids:
+        try:
+            parsed_ids = [int(x) for x in problem_ids.split(',') if x.strip()]
+        except ValueError:
+            parsed_ids = None
+    problem = crud.get_next_review(db, daily_limit=daily_limit, exclude_id=exclude_id, problem_ids=parsed_ids)
     if not problem:
         return None
     review_count = db.query(ReviewRecord).filter(ReviewRecord.problem_id == problem.id).count()

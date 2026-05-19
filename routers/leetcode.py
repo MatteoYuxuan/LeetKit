@@ -3,21 +3,13 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timezone
-from database import SessionLocal
+from database import get_db
 from models import Problem, LeetCodeCookie, Category
 from crawler.leetcode_client import LeetCodeClient
 from crud import compute_sort_key, sync_problem_categories
 from security import encrypt_cookie, decrypt_cookie
 
 router = APIRouter(prefix="/leetcode", tags=["leetcode"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 class CookieLogin(BaseModel):

@@ -1,6 +1,7 @@
 import re
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import func, or_, select, case
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 from models import Problem, Category, Tag, Note, ReviewRecord, ReviewSchedule, problem_tags, note_tags, problem_categories, note_categories
 import schemas
@@ -120,7 +121,11 @@ def get_categories(db: Session) -> list[dict]:
 def create_category(db: Session, data: schemas.CategoryCreate) -> Category:
     cat = Category(**data.model_dump())
     db.add(cat)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(cat)
     return cat
 
@@ -140,7 +145,9 @@ def delete_category(db: Session, cat_id: int) -> bool:
     cat = db.get(Category, cat_id)
     if not cat:
         return False
-    if cat.problems or cat.notes:
+    has_problems = db.scalar(select(func.count(problem_categories.c.problem_id)).where(problem_categories.c.category_id == cat_id))
+    has_notes = db.scalar(select(func.count(note_categories.c.note_id)).where(note_categories.c.category_id == cat_id))
+    if has_problems or has_notes:
         return False
     db.delete(cat)
     db.commit()
@@ -150,7 +157,6 @@ def delete_category(db: Session, cat_id: int) -> bool:
 # --- Tag CRUD ---
 
 def get_tags(db: Session) -> list[dict]:
-    from sqlalchemy import union_all
     # Count both problems and notes per tag
     prob_counts = (
         select(problem_tags.c.tag_id.label("tag_id"))
@@ -178,7 +184,11 @@ def get_tags(db: Session) -> list[dict]:
 def create_tag(db: Session, data: schemas.TagCreate) -> Tag:
     tag = Tag(**data.model_dump())
     db.add(tag)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(tag)
     return tag
 
@@ -201,6 +211,47 @@ def delete_tag(db: Session, tag_id: int) -> bool:
     db.delete(tag)
     db.commit()
     return True
+
+
+# --- Shared helpers ---
+
+_ALLOWED_SORT_FIELDS = {
+    "leetcode_number", "title", "title_cn", "difficulty",
+    "status", "created_at", "ac_rate", "page_number",
+}
+
+
+def _sync_tags_and_categories(db: Session, entity, tag_ids: list[int] | None, category_ids: list[int] | None):
+    """统一设置实体的标签和分类关联"""
+    if tag_ids is not None:
+        tags = db.query(Tag).filter(Tag.id.in_(tag_ids)).all() if tag_ids else []
+        entity.tags = tags
+    if category_ids is not None:
+        cats = db.query(Category).filter(Category.id.in_(category_ids)).all() if category_ids else []
+        entity.categories = cats
+
+
+def _calc_streak_from_dates(all_dates: list[str], today_str: str) -> tuple[int, int]:
+    """统一计算连续天数和最长连续天数，返回 (streak, longest_streak)"""
+    dates_set = set(all_dates)
+    streak = 0
+    d = datetime.strptime(today_str, "%Y-%m-%d")
+    while d.strftime("%Y-%m-%d") in dates_set:
+        streak += 1
+        d -= timedelta(days=1)
+
+    if not all_dates:
+        return streak, 0
+    parsed = sorted(datetime.strptime(dd, "%Y-%m-%d") for dd in all_dates)
+    longest = 1
+    current = 1
+    for i in range(1, len(parsed)):
+        if (parsed[i] - parsed[i - 1]).days == 1:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 1
+    return streak, max(longest, current)
 
 
 # --- Problem CRUD ---
@@ -235,7 +286,8 @@ def get_problems(
         stmt = stmt.where(Problem.id.in_(tag_sub))
         count_stmt = count_stmt.where(Problem.id.in_(tag_sub))
     if q:
-        pattern = f"%{q}%"
+        escaped_q = q.replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped_q}%"
         search_filter = or_(
             Problem.title.ilike(pattern),
             Problem.title_cn.ilike(pattern),
@@ -247,6 +299,8 @@ def get_problems(
 
     total = db.scalar(count_stmt) or 0
 
+    if sort_by not in _ALLOWED_SORT_FIELDS:
+        sort_by = "leetcode_number"
     if sort_by == "leetcode_number":
         sort_column = Problem.leetcode_number_sort
     else:
@@ -275,12 +329,7 @@ def create_problem(db: Session, data: schemas.ProblemCreate) -> Problem:
     problem = Problem(**problem_data)
     if problem.status == "已解" and not problem.solved_at:
         problem.solved_at = datetime.now(timezone.utc)
-    if tag_ids:
-        tags = db.query(Tag).filter(Tag.id.in_(tag_ids)).all()
-        problem.tags = tags
-    if category_ids:
-        cats = db.query(Category).filter(Category.id.in_(category_ids)).all()
-        problem.categories = cats
+    _sync_tags_and_categories(db, problem, tag_ids, category_ids)
     db.add(problem)
     db.commit()
     db.refresh(problem)
@@ -296,12 +345,7 @@ def update_problem(db: Session, problem_id: int, data: schemas.ProblemUpdate) ->
     category_ids = update_data.pop("category_ids", None)
     for key, value in update_data.items():
         setattr(problem, key, value)
-    if tag_ids is not None:
-        tags = db.query(Tag).filter(Tag.id.in_(tag_ids)).all()
-        problem.tags = tags
-    if category_ids is not None:
-        cats = db.query(Category).filter(Category.id.in_(category_ids)).all()
-        problem.categories = cats
+    _sync_tags_and_categories(db, problem, tag_ids, category_ids)
     if problem.status == "已解" and not problem.solved_at:
         problem.solved_at = datetime.now(timezone.utc)
     problem.updated_at = datetime.now(timezone.utc)
@@ -341,7 +385,8 @@ def get_notes(
         stmt = stmt.where(Note.id.in_(tag_sub))
         count_stmt = count_stmt.where(Note.id.in_(tag_sub))
     if q:
-        pattern = f"%{q}%"
+        escaped_q = q.replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped_q}%"
         search_filter = or_(Note.title.ilike(pattern), Note.content.ilike(pattern))
         stmt = stmt.where(search_filter)
         count_stmt = count_stmt.where(search_filter)
@@ -363,12 +408,7 @@ def create_note(db: Session, data: schemas.NoteCreate) -> Note:
     category_ids = data.category_ids
     note_data = data.model_dump(exclude={"tag_ids", "category_ids"})
     note = Note(**note_data)
-    if tag_ids:
-        tags = db.query(Tag).filter(Tag.id.in_(tag_ids)).all()
-        note.tags = tags
-    if category_ids:
-        cats = db.query(Category).filter(Category.id.in_(category_ids)).all()
-        note.categories = cats
+    _sync_tags_and_categories(db, note, tag_ids, category_ids)
     db.add(note)
     db.commit()
     db.refresh(note)
@@ -384,12 +424,7 @@ def update_note(db: Session, note_id: int, data: schemas.NoteUpdate) -> Note | N
     category_ids = update_data.pop("category_ids", None)
     for key, value in update_data.items():
         setattr(note, key, value)
-    if tag_ids is not None:
-        tags = db.query(Tag).filter(Tag.id.in_(tag_ids)).all()
-        note.tags = tags
-    if category_ids is not None:
-        cats = db.query(Category).filter(Category.id.in_(category_ids)).all()
-        note.categories = cats
+    _sync_tags_and_categories(db, note, tag_ids, category_ids)
     note.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(note)
@@ -417,16 +452,13 @@ def get_stats_overview(db: Session) -> dict:
     by_status = {row[0]: row[1] for row in status_rows}
 
     diff_rows = db.execute(
-        select(Problem.difficulty, func.count(Problem.id)).group_by(Problem.difficulty)
+        select(
+            Problem.difficulty,
+            func.count(Problem.id).label("total"),
+            func.sum(case((Problem.status == "已解", 1), else_=0)).label("solved"),
+        ).group_by(Problem.difficulty)
     ).all()
-    by_difficulty = {}
-    for diff, cnt in diff_rows:
-        solved = db.scalar(
-            select(func.count(Problem.id)).where(
-                Problem.difficulty == diff, Problem.status == "已解"
-            )
-        ) or 0
-        by_difficulty[diff] = {"total": cnt, "已解": solved}
+    by_difficulty = {diff: {"total": cnt, "已解": int(solved or 0)} for diff, cnt, solved in diff_rows}
 
     return {"total": total, "note_total": note_total, "by_status": by_status, "by_difficulty": by_difficulty}
 
@@ -522,7 +554,7 @@ def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def get_next_review(db: Session, daily_limit: int = 3, exclude_id: int | None = None) -> Problem | None:
+def get_next_review(db: Session, daily_limit: int = 3, exclude_id: int | None = None, problem_ids: list[int] | None = None) -> Problem | None:
     now = _now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -542,6 +574,8 @@ def get_next_review(db: Session, daily_limit: int = 3, exclude_id: int | None = 
     )
     if exclude_id is not None:
         review_query = review_query.where(Problem.id != exclude_id)
+    if problem_ids is not None:
+        review_query = review_query.where(Problem.id.in_(problem_ids))
     result = db.execute(review_query).unique().scalars().first()
     if result:
         return result
@@ -558,6 +592,8 @@ def get_next_review(db: Session, daily_limit: int = 3, exclude_id: int | None = 
     )
     if exclude_id is not None:
         overdue_query = overdue_query.where(ReviewSchedule.problem_id != exclude_id)
+    if problem_ids is not None:
+        overdue_query = overdue_query.where(ReviewSchedule.problem_id.in_(problem_ids))
     schedule = db.execute(overdue_query).scalars().first()
     if schedule and schedule.problem:
         problem = schedule.problem
@@ -574,6 +610,8 @@ def get_next_review(db: Session, daily_limit: int = 3, exclude_id: int | None = 
     )
     if exclude_id is not None:
         never_query = never_query.where(Problem.id != exclude_id)
+    if problem_ids is not None:
+        never_query = never_query.where(Problem.id.in_(problem_ids))
     result = db.execute(never_query).unique().scalars().first()
     if result:
         return result
@@ -619,6 +657,7 @@ def submit_review(db: Session, problem_id: int, rating: int, time_spent: int | N
             # 完成所有复习阶段
             schedule.is_completed = 1
             schedule.stage = next_stage
+            schedule.next_review_at = now
             new_interval = EBBINGHAUS_INTERVALS[-1]
         else:
             schedule.stage = next_stage
@@ -759,8 +798,12 @@ def checkin_today(db: Session) -> dict:
     is_first = not existing
 
     if is_first:
-        db.add(DailyCheckin(date=today_str))
-        db.commit()
+        try:
+            db.add(DailyCheckin(date=today_str))
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            is_first = False
 
     # Calculate streak
     all_dates = sorted(
@@ -769,8 +812,7 @@ def checkin_today(db: Session) -> dict:
         ).all()]
     )
 
-    streak = _calc_streak(all_dates, today_str)
-    longest = _calc_longest_streak(all_dates)
+    streak, longest = _calc_streak_from_dates(all_dates, today_str)
     total = len(all_dates)
 
     return {
@@ -794,42 +836,14 @@ def get_checkin_stats(db: Session) -> dict:
         ).all()]
     )
 
+    streak, longest = _calc_streak_from_dates(all_dates, today_str)
+
     return {
         "checked_in_today": existing is not None,
-        "streak": _calc_streak(all_dates, today_str),
-        "longest_streak": _calc_longest_streak(all_dates),
+        "streak": streak,
+        "longest_streak": longest,
         "total_checkins": len(all_dates),
     }
-
-
-def _calc_streak(dates_desc: list[str], today_str: str) -> int:
-    """计算从今天往回数的连续签到天数"""
-    from datetime import timedelta
-    now = _now()
-    dates_set = set(dates_desc)
-    streak = 0
-    d = now
-    while d.strftime("%Y-%m-%d") in dates_set:
-        streak += 1
-        d = d - timedelta(days=1)
-    return streak
-
-
-def _calc_longest_streak(dates: list[str]) -> int:
-    """计算历史最长连续签到天数"""
-    from datetime import datetime, timedelta
-    if not dates:
-        return 0
-    parsed = sorted(datetime.strptime(d, "%Y-%m-%d") for d in dates)
-    longest = 1
-    current = 1
-    for i in range(1, len(parsed)):
-        if (parsed[i] - parsed[i-1]).days == 1:
-            current += 1
-            longest = max(longest, current)
-        else:
-            current = 1
-    return max(longest, current)
 
 
 def get_checkin_dates(db: Session, year: int) -> list[str]:

@@ -231,9 +231,9 @@ class TestReviewSystem:
 
         schedule = create_review_schedule(db, problem.id)
 
-        # 完成所有阶段
+        # 完成所有阶段（使用 rating=2 表示"基本记得"）
         for i in range(len(EBBINGHAUS_INTERVALS)):
-            submit_review(db, problem.id, 3)
+            submit_review(db, problem.id, 2)
             db.refresh(schedule)
 
         assert schedule.is_completed == 1
