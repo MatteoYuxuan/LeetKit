@@ -271,3 +271,82 @@ class LeetCodeClient:
         data = await self._graphql(payload)
         result = data.get("data", {}).get("userProfileQuestions", {})
         return result.get("questions", [])
+
+    async def fetch_problem_list_problems(self, list_id_slug: str) -> list[dict]:
+        """通过 GraphQL 获取题单中的所有题目"""
+        all_problems = []
+        skip = 0
+        limit = 100
+
+        while True:
+            payload = queries.get_favorite_question_list_query(
+                favorite_slug=list_id_slug, skip=skip, limit=limit
+            )
+            data = await self._graphql(payload)
+            fl = data.get("data", {}).get("favoriteQuestionList", {})
+
+            questions = fl.get("questions", [])
+            if not questions:
+                break
+
+            for q in questions:
+                all_problems.append({
+                    "frontendQuestionId": q.get("questionFrontendId", ""),
+                    "title": q.get("title", ""),
+                    "titleCn": q.get("translatedTitle", ""),
+                    "titleSlug": q.get("titleSlug", ""),
+                    "difficulty": q.get("difficulty", "Medium"),
+                })
+
+            if not fl.get("hasMore", False):
+                break
+            skip += limit
+
+        return all_problems
+
+    async def fetch_problem_list_metadata(self, list_id_slug: str) -> dict:
+        """获取题单元数据（名称）— 从页面标题提取"""
+        import re
+        url = f"https://leetcode.cn/problem-list/{list_id_slug}/"
+        try:
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                resp = await client.get(url, headers=DEFAULT_HEADERS)
+                resp.raise_for_status()
+                html = resp.text
+                match = re.search(r'<title[^>]*>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
+                if match:
+                    title = match.group(1).strip()
+                    title = re.sub(r'\s*-\s*LeetCode.*$', '', title).strip()
+                    if title and title != "题单":
+                        return {"name": title, "description": None}
+        except Exception:
+            pass
+        return {"name": "LeetCode 题单", "description": None}
+
+    async def fetch_study_plan_detail(self, plan_slug: str) -> dict:
+        """通过 GraphQL 获取学习计划详情（名称 + 分组题目）"""
+        payload = queries.get_study_plan_detail_query(plan_slug)
+        data = await self._graphql(payload)
+        return data.get("data", {}).get("studyPlanV2Detail", {})
+
+    async def fetch_study_plan_problems(self, plan_slug: str) -> list[dict]:
+        """获取学习计划中的所有题目（展平分组）"""
+        detail = await self.fetch_study_plan_detail(plan_slug)
+        difficulty_map = {"EASY": "Easy", "MEDIUM": "Medium", "HARD": "Hard"}
+        all_problems = []
+        for group in detail.get("planSubGroups", []):
+            for q in group.get("questions", []):
+                all_problems.append({
+                    "frontendQuestionId": q.get("questionFrontendId", ""),
+                    "title": q.get("title", ""),
+                    "titleCn": q.get("translatedTitle", ""),
+                    "titleSlug": q.get("titleSlug", ""),
+                    "difficulty": difficulty_map.get(q.get("difficulty", ""), "Medium"),
+                })
+        return all_problems
+
+    async def fetch_study_plan_metadata(self, plan_slug: str) -> dict:
+        """获取学习计划元数据（名称）"""
+        detail = await self.fetch_study_plan_detail(plan_slug)
+        name = detail.get("name", "LeetCode 学习计划")
+        return {"name": name, "description": None}

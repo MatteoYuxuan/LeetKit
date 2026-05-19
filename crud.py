@@ -107,12 +107,29 @@ def get_categories(db: Session) -> list[dict]:
     rows = db.execute(stmt).all()
     result = []
     for cat, count in rows:
+        # Get solved count, review count, and difficulty breakdown for this category
+        cat_problems = (
+            select(Problem)
+            .join(problem_categories, problem_categories.c.problem_id == Problem.id)
+            .where(problem_categories.c.category_id == cat.id)
+        )
+        problems_in_cat = db.execute(cat_problems).scalars().all()
+        solved = sum(1 for p in problems_in_cat if p.status in ("已解", "需复盘"))
+        review = sum(1 for p in problems_in_cat if p.status == "需复盘")
+        diff_counts = {}
+        for p in problems_in_cat:
+            d = p.difficulty or "EASY"
+            diff_counts[d] = diff_counts.get(d, 0) + 1
+
         d = {
             "id": cat.id,
             "name": cat.name,
             "description": cat.description,
             "color": cat.color,
             "problem_count": count,
+            "solved_count": solved,
+            "review_count": review,
+            "difficulty_counts": diff_counts,
         }
         result.append(d)
     return result
@@ -649,6 +666,10 @@ def submit_review(db: Session, problem_id: int, rating: int, time_spent: int | N
     if not schedule:
         schedule = create_review_schedule(db, problem_id)
 
+    # 难度因子：Easy 延长，Hard 缩短
+    difficulty_factor = {"EASY": 1.3, "MEDIUM": 1.0, "HARD": 0.7}
+    factor = difficulty_factor.get(problem.difficulty, 1.0)
+
     # 根据评分决定下一个复习阶段
     if rating >= 2:
         # 掌握良好，进入下一阶段
@@ -661,16 +682,16 @@ def submit_review(db: Session, problem_id: int, rating: int, time_spent: int | N
             new_interval = EBBINGHAUS_INTERVALS[-1]
         else:
             schedule.stage = next_stage
-            new_interval = EBBINGHAUS_INTERVALS[next_stage]
+            new_interval = max(1, round(EBBINGHAUS_INTERVALS[next_stage] * factor))
             schedule.next_review_at = now + timedelta(days=new_interval)
     elif rating == 1:
         # 模糊，保持当前阶段，缩短间隔
-        new_interval = max(1, EBBINGHAUS_INTERVALS[schedule.stage] // 2)
+        new_interval = max(1, round(EBBINGHAUS_INTERVALS[schedule.stage] // 2 * factor))
         schedule.next_review_at = now + timedelta(days=new_interval)
     else:
-        # 完全不会，重置到第一阶段
-        schedule.stage = 0
-        new_interval = EBBINGHAUS_INTERVALS[0]
+        # 忘了，回退两阶段（不再完全重置）
+        schedule.stage = max(0, schedule.stage - 2)
+        new_interval = max(1, round(EBBINGHAUS_INTERVALS[schedule.stage] * factor))
         schedule.next_review_at = now + timedelta(days=new_interval)
 
     # 记录复习历史

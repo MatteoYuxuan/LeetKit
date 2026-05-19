@@ -1,10 +1,11 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timezone
 from database import get_db
-from models import Problem, LeetCodeCookie, Category
+from models import Problem, LeetCodeCookie, Category, ProblemList, ProblemListItem
 from crawler.leetcode_client import LeetCodeClient
 from crud import compute_sort_key, sync_problem_categories
 from security import encrypt_cookie, decrypt_cookie
@@ -18,6 +19,18 @@ class CookieLogin(BaseModel):
 
 class ImportRequest(BaseModel):
     problems: list[dict]  # [{"frontendQuestionId": "1", "title": "Two Sum", ...}]
+
+
+class ImportListPreviewRequest(BaseModel):
+    url_or_id: str
+
+
+class ImportListConfirmRequest(BaseModel):
+    list_name: str
+    list_description: str | None = None
+    problem_ids: list[int]
+    source: str | None = None
+    source_url: str | None = None
 
 
 @router.post("/login")
@@ -328,3 +341,209 @@ async def sync_categories(db: Session = Depends(get_db)):
         return {"updated": updated, "total": len(problems)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"同步分类失败: {str(e)}")
+
+
+def _parse_list_url(input_str: str) -> tuple[str, str]:
+    """从 URL 提取类型和 ID，返回 (type, slug)。type: 'list' 或 'studyplan'"""
+    input_str = input_str.strip()
+    match = re.search(r'leetcode\.cn/studyplan/([a-zA-Z0-9_-]+)', input_str)
+    if match:
+        return ("studyplan", match.group(1))
+    match = re.search(r'leetcode\.cn/problem-list/([a-zA-Z0-9_-]+)', input_str)
+    if match:
+        return ("list", match.group(1))
+    if re.match(r'^[a-zA-Z0-9_-]+$', input_str):
+        return ("list", input_str)
+    raise HTTPException(status_code=400, detail="无法识别的链接格式，支持 problem-list 和 studyplan 两种 URL")
+
+
+def _get_leetcode_client(db: Session) -> LeetCodeClient:
+    """获取 LeetCodeClient，优先使用已存储的 cookie"""
+    cookie = db.query(LeetCodeCookie).filter(LeetCodeCookie.is_active == 1).first()
+    if cookie:
+        try:
+            cookie_value = decrypt_cookie(cookie.cookie_value)
+        except Exception:
+            cookie_value = cookie.cookie_value
+        return LeetCodeClient(cookie=cookie_value)
+    return LeetCodeClient()
+
+
+@router.post("/import-list-preview")
+async def import_list_preview(data: ImportListPreviewRequest, db: Session = Depends(get_db)):
+    """预览 LeetCode 题单或学习计划：获取题目列表并匹配本地数据库"""
+    try:
+        url_type, slug = _parse_list_url(data.url_or_id)
+        client = _get_leetcode_client(db)
+
+        # 根据 URL 类型获取元数据和题目列表
+        if url_type == "studyplan":
+            metadata = await client.fetch_study_plan_metadata(slug)
+            problems = await client.fetch_study_plan_problems(slug)
+        else:
+            metadata = await client.fetch_problem_list_metadata(slug)
+            problems = await client.fetch_problem_list_problems(slug)
+
+        # 匹配本地数据库
+        matched = []
+        not_matched = []
+        for p in problems:
+            fid = p.get("frontendQuestionId", "")
+            local = db.query(Problem).filter(Problem.leetcode_number == fid).first()
+            if local:
+                matched.append({
+                    "problem_id": local.id,
+                    "leetcode_number": local.leetcode_number,
+                    "title": local.title,
+                    "title_cn": local.title_cn or p.get("titleCn", ""),
+                    "difficulty": local.difficulty,
+                    "status": local.status,
+                })
+            else:
+                not_matched.append({
+                    "frontendQuestionId": fid,
+                    "title": p.get("title", ""),
+                    "titleCn": p.get("titleCn", ""),
+                })
+
+        return {
+            "list_id_slug": slug,
+            "url_type": url_type,
+            "list_name": metadata.get("name", "LeetCode 题单"),
+            "total": len(problems),
+            "matched_count": len(matched),
+            "not_matched_count": len(not_matched),
+            "matched": matched,
+            "not_matched": not_matched,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取题单失败: {str(e)}")
+
+
+@router.post("/import-list")
+async def import_list_confirm(data: ImportListConfirmRequest, db: Session = Depends(get_db)):
+    """确认导入题单：创建 ProblemList 并添加题目"""
+    try:
+        # 创建题单
+        from datetime import datetime, timezone
+        pl = ProblemList(
+            name=data.list_name,
+            description=data.list_description,
+            source=data.source,
+            source_url=data.source_url,
+            last_synced_at=datetime.now(timezone.utc),
+        )
+        db.add(pl)
+        db.flush()
+
+        # 批量添加题目
+        added = 0
+        for sort_order, problem_id in enumerate(data.problem_ids):
+            problem = db.query(Problem).filter(Problem.id == problem_id).first()
+            if not problem:
+                continue
+            existing = db.query(ProblemListItem).filter(
+                ProblemListItem.problem_list_id == pl.id,
+                ProblemListItem.problem_id == problem_id,
+            ).first()
+            if existing:
+                continue
+            item = ProblemListItem(
+                problem_list_id=pl.id,
+                problem_id=problem_id,
+                sort_order=sort_order,
+            )
+            db.add(item)
+            added += 1
+
+        db.commit()
+        db.refresh(pl)
+        return {"list_id": pl.id, "list_name": pl.name, "added": added, "source": pl.source}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"导入题单失败: {str(e)}")
+
+
+async def _sync_single_list(db: Session, pl: ProblemList, client: LeetCodeClient) -> dict:
+    """同步单个 LeetCode 题单，返回 {added, removed, total}"""
+    url_type, slug = _parse_list_url(pl.source_url)
+
+    # 获取最新题目
+    if url_type == "studyplan":
+        remote_problems = await client.fetch_study_plan_problems(slug)
+    else:
+        remote_problems = await client.fetch_problem_list_problems(slug)
+
+    remote_fids = {p["frontendQuestionId"] for p in remote_problems}
+    current_fids = {item.problem.leetcode_number for item in pl.items}
+
+    # 新增的题目
+    to_add = remote_fids - current_fids
+    added = 0
+    for p in remote_problems:
+        if p["frontendQuestionId"] not in to_add:
+            continue
+        local = db.query(Problem).filter(Problem.leetcode_number == p["frontendQuestionId"]).first()
+        if not local:
+            continue
+        item = ProblemListItem(
+            problem_list_id=pl.id,
+            problem_id=local.id,
+            sort_order=len(pl.items) + added,
+        )
+        db.add(item)
+        added += 1
+
+    # 移除的题目（在本地但不在远程）
+    to_remove = current_fids - remote_fids
+    removed = 0
+    for item in pl.items:
+        if item.problem.leetcode_number in to_remove:
+            db.delete(item)
+            removed += 1
+
+    pl.last_synced_at = datetime.now(timezone.utc)
+    return {"added": added, "removed": removed, "total": len(remote_problems)}
+
+
+@router.post("/sync-list/{list_id}")
+async def sync_list(list_id: int, db: Session = Depends(get_db)):
+    """同步单个 LeetCode 题单"""
+    pl = db.query(ProblemList).filter(ProblemList.id == list_id).first()
+    if not pl:
+        raise HTTPException(status_code=404, detail="题单不存在")
+    if not pl.source_url:
+        raise HTTPException(status_code=400, detail="该题单不是从 LeetCode 导入的，无法同步")
+    try:
+        client = _get_leetcode_client(db)
+        result = await _sync_single_list(db, pl, client)
+        db.commit()
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"同步失败: {str(e)}")
+
+
+@router.post("/sync-all-lists")
+async def sync_all_lists(db: Session = Depends(get_db)):
+    """同步所有 LeetCode 题单"""
+    lists = db.query(ProblemList).filter(ProblemList.source_url.isnot(None)).all()
+    if not lists:
+        return {"synced": 0, "total": 0, "results": []}
+    try:
+        client = _get_leetcode_client(db)
+        results = []
+        for pl in lists:
+            try:
+                r = await _sync_single_list(db, pl, client)
+                results.append({"list_id": pl.id, "list_name": pl.name, **r})
+            except Exception as e:
+                results.append({"list_id": pl.id, "list_name": pl.name, "error": str(e)})
+        db.commit()
+        return {"synced": len(results), "total": len(lists), "results": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"批量同步失败: {str(e)}")

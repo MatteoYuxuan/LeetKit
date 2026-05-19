@@ -20,6 +20,9 @@ class CategoryUpdate(BaseModel):
 class CategoryResponse(CategoryCreate):
     id: int
     problem_count: int = 0
+    solved_count: int = 0
+    review_count: int = 0
+    difficulty_counts: dict = {}
     model_config = ConfigDict(from_attributes=True)
 
 

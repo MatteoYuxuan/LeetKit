@@ -32,6 +32,10 @@ class BatchAddItemsRequest(BaseModel):
     problem_ids: list[int]
 
 
+class BatchAddByNumberRequest(BaseModel):
+    leetcode_numbers: list[str]
+
+
 @router.get("/problem-lists")
 def list_problem_lists(db: Session = Depends(get_db)):
     lists = db.query(ProblemList).order_by(ProblemList.updated_at.desc()).all()
@@ -49,6 +53,9 @@ def list_problem_lists(db: Session = Depends(get_db)):
             "id": pl.id,
             "name": pl.name,
             "description": pl.description,
+            "source": pl.source,
+            "source_url": pl.source_url,
+            "last_synced_at": pl.last_synced_at.isoformat() if pl.last_synced_at else None,
             "item_count": len(pl.items),
             "solved_count": solved,
             "status_counts": status_counts,
@@ -68,6 +75,9 @@ def get_problem_list(list_id: int, db: Session = Depends(get_db)):
         "id": pl.id,
         "name": pl.name,
         "description": pl.description,
+        "source": pl.source,
+        "source_url": pl.source_url,
+        "last_synced_at": pl.last_synced_at.isoformat() if pl.last_synced_at else None,
         "created_at": pl.created_at.isoformat(),
         "updated_at": pl.updated_at.isoformat(),
         "items": [
@@ -84,6 +94,8 @@ def get_problem_list(list_id: int, db: Session = Depends(get_db)):
                     "leetcode_slug": item.problem.leetcode_slug,
                     "difficulty": item.problem.difficulty,
                     "status": item.problem.status,
+                    "categories": [c.name for c in item.problem.categories],
+                    "tags": [t.name for t in item.problem.tags],
                 },
             }
             for item in pl.items
@@ -208,6 +220,43 @@ def batch_add_items(list_id: int, data: BatchAddItemsRequest, db: Session = Depe
 
     db.commit()
     return {"added": added, "skipped": skipped}
+
+
+@router.post("/problem-lists/{list_id}/items/batch-by-number", status_code=201)
+def batch_add_items_by_number(list_id: int, data: BatchAddByNumberRequest, db: Session = Depends(get_db)):
+    """按 LeetCode 题号批量添加题目到题单"""
+    pl = db.query(ProblemList).filter(ProblemList.id == list_id).first()
+    if not pl:
+        raise HTTPException(status_code=404, detail="题单不存在")
+
+    # 一次性查出所有匹配的 problem
+    problems = db.query(Problem).filter(Problem.leetcode_number.in_(data.leetcode_numbers)).all()
+    problem_map = {p.leetcode_number: p for p in problems}
+
+    added = 0
+    not_found = 0
+    existing_count = len(pl.items)
+    for num in data.leetcode_numbers:
+        problem = problem_map.get(num)
+        if not problem:
+            not_found += 1
+            continue
+        existing = db.query(ProblemListItem).filter(
+            ProblemListItem.problem_list_id == list_id,
+            ProblemListItem.problem_id == problem.id,
+        ).first()
+        if existing:
+            continue
+        item = ProblemListItem(
+            problem_list_id=list_id,
+            problem_id=problem.id,
+            sort_order=existing_count + added,
+        )
+        db.add(item)
+        added += 1
+
+    db.commit()
+    return {"added": added, "not_found": not_found}
 
 
 @router.get("/problem-lists/{list_id}/review-stats")

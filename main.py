@@ -67,6 +67,19 @@ def migrate_database():
     if "time_spent" not in existing_columns:
         cursor.execute("ALTER TABLE review_records ADD COLUMN time_spent INTEGER")
 
+    # 获取 problem_lists 表现有列
+    cursor.execute("PRAGMA table_info(problem_lists)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    new_columns = {
+        "source": "TEXT",
+        "source_url": "TEXT",
+        "last_synced_at": "TIMESTAMP",
+    }
+    for col_name, col_type in new_columns.items():
+        if col_name not in existing_columns:
+            cursor.execute(f"ALTER TABLE problem_lists ADD COLUMN {col_name} {col_type}")
+
     # 创建 daily_checkins 表（如果不存在）
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS daily_checkins (
